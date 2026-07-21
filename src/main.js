@@ -6,7 +6,7 @@ import {
   splitPlayer,
   stepWorld,
 } from './simulation.js';
-import { calculateJoystick, cameraScaleForMass } from './input.js';
+import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from './input.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -184,16 +184,16 @@ function setPointerFromClient(clientX, clientY) {
 }
 
 function updatePointerWorld() {
-  if (joystickDirection.active) {
-    const center = playerCenter();
-    const reach = 650 + joystickDirection.strength * 520;
-    pointer.x = center.x + joystickDirection.x * reach;
-    pointer.y = center.y + joystickDirection.y * reach;
-    return;
-  }
-
-  pointer.x = camera.x + (pointer.screenX - viewWidth / 2) / camera.scale;
-  pointer.y = camera.y + (pointer.screenY - viewHeight / 2) / camera.scale;
+  const target = pointerTargetForControls({
+    playerCenter: playerCenter(),
+    joystickDirection,
+    isTouchDevice: isTouchDevice(),
+    camera,
+    pointerScreen: { x: pointer.screenX, y: pointer.screenY },
+    view: { width: viewWidth, height: viewHeight },
+  });
+  pointer.x = target.x;
+  pointer.y = target.y;
 }
 
 function updateCamera() {
@@ -400,10 +400,9 @@ function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
 }
 
 function drawMinimap() {
-  const isMobileLandscape = viewWidth < 900 && viewWidth > viewHeight;
-  const size = isMobileLandscape ? 112 : viewWidth < 700 ? 96 : 140;
-  const left = viewWidth - size - (isMobileLandscape ? 12 : 18);
-  const top = isMobileLandscape ? 10 : 18;
+  const size = viewWidth < 900 && viewWidth > viewHeight ? 112 : viewWidth < 700 ? 96 : 140;
+  const left = viewWidth - size - 12;
+  const top = 10;
   const scale = size / CONFIG.worldSize;
   ctx.save();
   ctx.beginPath();

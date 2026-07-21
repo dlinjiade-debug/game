@@ -24,12 +24,31 @@ export function calculateJoystick({ clientX, clientY, centerX, centerY, maxDista
 export function cameraScaleForMass({ totalMass, viewWidth, viewHeight }) {
   const isMobileLandscape = viewWidth < 900 && viewWidth > viewHeight;
   const isSmallScreen = viewWidth < 700 || viewHeight < 520;
-  const base = isMobileLandscape ? 0.58 : isSmallScreen ? 0.62 : 0.78;
-  const massZoomOut = Math.log2(Math.max(1, totalMass / 180)) * (isMobileLandscape ? 0.105 : 0.085);
-  const minScale = isMobileLandscape ? 0.18 : isSmallScreen ? 0.22 : 0.30;
-  const maxScale = isMobileLandscape ? 0.48 : isSmallScreen ? 0.54 : 0.68;
+  const base = isMobileLandscape ? 0.44 : isSmallScreen ? 0.50 : 0.72;
+  const massZoomOut = Math.log2(Math.max(1, totalMass / 180)) * (isMobileLandscape ? 0.12 : 0.095);
+  const minScale = isMobileLandscape ? 0.14 : isSmallScreen ? 0.18 : 0.26;
+  const maxScale = isMobileLandscape ? 0.38 : isSmallScreen ? 0.46 : 0.62;
 
   return clamp(base - massZoomOut, minScale, maxScale);
+}
+
+export function pointerTargetForControls({ playerCenter, joystickDirection, isTouchDevice, camera, pointerScreen, view }) {
+  if (joystickDirection.active) {
+    const reach = 650 + joystickDirection.strength * 520;
+    return {
+      x: playerCenter.x + joystickDirection.x * reach,
+      y: playerCenter.y + joystickDirection.y * reach,
+    };
+  }
+
+  if (isTouchDevice) {
+    return playerCenter;
+  }
+
+  return {
+    x: camera.x + (pointerScreen.x - view.width / 2) / camera.scale,
+    y: camera.y + (pointerScreen.y - view.height / 2) / camera.scale,
+  };
 }
 
 function clamp(value, min, max) {

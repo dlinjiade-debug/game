@@ -13,7 +13,7 @@ export const CONFIG = {
   maxVirusFragments: 8,
   eatRatio: 1.16,
   zoneDamagePerSecond: 18,
-  mergeDelay: 8,
+  mergeDelay: 4.5,
   startZoneRadius: 1900,
   finalZoneRadius: 260,
   zoneShrinkDuration: 210,
@@ -224,7 +224,7 @@ function mergeFriendlyCells(owner, dt) {
       const a = owner.cells[i];
       const b = owner.cells[j];
       if (a.splitCooldown > 0 || b.splitCooldown > 0) continue;
-      const needed = Math.max(radiusFromMass(a.mass), radiusFromMass(b.mass)) * 0.45;
+      const needed = Math.max(radiusFromMass(a.mass), radiusFromMass(b.mass)) * 0.78;
       if (distance(a, b) > needed) continue;
       a.mass += b.mass;
       a.x = (a.x + b.x) / 2;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { calculateJoystick, cameraScaleForMass } from '../src/input.js';
+import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from '../src/input.js';
 
 test('calculateJoystick clamps the sliding ball inside the wheel', () => {
   const result = calculateJoystick({
@@ -53,4 +53,19 @@ test('cameraScaleForMass zooms out more on mobile and as mass grows', () => {
 
   assert.ok(smallMobile < smallDesktop);
   assert.ok(largeMobile < smallMobile);
+  assert.ok(smallMobile <= 0.38);
+});
+
+test('pointerTargetForControls stops on mobile when the joystick is idle', () => {
+  const playerCenter = { x: 500, y: 600 };
+  const result = pointerTargetForControls({
+    playerCenter,
+    joystickDirection: { x: 0, y: 0, strength: 0, active: false },
+    isTouchDevice: true,
+    camera: { x: 0, y: 0, scale: 1 },
+    pointerScreen: { x: 200, y: 120 },
+    view: { width: 800, height: 360 },
+  });
+
+  assert.deepEqual(result, playerCenter);
 });
