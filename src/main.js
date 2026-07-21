@@ -6,6 +6,7 @@ import {
   splitPlayer,
   stepWorld,
 } from './simulation.js';
+import { calculateJoystick } from './input.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -17,6 +18,8 @@ const resultTitle = document.querySelector('#resultTitle');
 const restart = document.querySelector('#restart');
 const mobileSplit = document.querySelector('#mobileSplit');
 const mobileEject = document.querySelector('#mobileEject');
+const joystick = document.querySelector('#joystick');
+const joystickKnob = document.querySelector('#joystickKnob');
 
 let state = createInitialState();
 let lastTime = performance.now();
@@ -25,6 +28,8 @@ let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
 let pixelRatio = window.devicePixelRatio || 1;
 let triedLandscapeLock = false;
+let joystickPointerId = null;
+let joystickDirection = { x: 0, y: 0, strength: 0, active: false };
 
 const pointer = {
   x: CONFIG.worldSize / 2,
@@ -52,6 +57,10 @@ mobileEject.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   performEject();
 });
+joystick.addEventListener('pointerdown', handleJoystickStart);
+joystick.addEventListener('pointermove', handleJoystickMove);
+joystick.addEventListener('pointerup', handleJoystickEnd);
+joystick.addEventListener('pointercancel', handleJoystickEnd);
 
 requestAnimationFrame(loop);
 
@@ -82,11 +91,46 @@ function handleKeydown(event) {
 
 function handleTouch(event) {
   tryLandscapeLock();
-  if (event.target.closest('button')) return;
+  if (event.target.closest('button') || event.target.closest('.joystick')) return;
   event.preventDefault();
   const touch = event.changedTouches[0];
   if (!touch) return;
   setPointerFromClient(touch.clientX, touch.clientY);
+}
+
+function handleJoystickStart(event) {
+  event.preventDefault();
+  tryLandscapeLock();
+  joystickPointerId = event.pointerId;
+  joystick.setPointerCapture(event.pointerId);
+  updateJoystick(event);
+}
+
+function handleJoystickMove(event) {
+  if (event.pointerId !== joystickPointerId) return;
+  event.preventDefault();
+  updateJoystick(event);
+}
+
+function handleJoystickEnd(event) {
+  if (event.pointerId !== joystickPointerId) return;
+  event.preventDefault();
+  joystickPointerId = null;
+  joystickDirection = { x: 0, y: 0, strength: 0, active: false };
+  joystickKnob.style.transform = 'translate(-50%, -50%)';
+}
+
+function updateJoystick(event) {
+  const rect = joystick.getBoundingClientRect();
+  const result = calculateJoystick({
+    clientX: event.clientX,
+    clientY: event.clientY,
+    centerX: rect.left + rect.width / 2,
+    centerY: rect.top + rect.height / 2,
+    maxDistance: rect.width * 0.34,
+  });
+  joystickDirection = result;
+  joystickKnob.style.transform = `translate(calc(-50% + ${result.knobX}px), calc(-50% + ${result.knobY}px))`;
 }
 
 async function tryLandscapeLock() {
@@ -138,6 +182,14 @@ function setPointerFromClient(clientX, clientY) {
 }
 
 function updatePointerWorld() {
+  if (joystickDirection.active) {
+    const center = playerCenter();
+    const reach = 650 + joystickDirection.strength * 520;
+    pointer.x = center.x + joystickDirection.x * reach;
+    pointer.y = center.y + joystickDirection.y * reach;
+    return;
+  }
+
   pointer.x = camera.x + (pointer.screenX - viewWidth / 2) / camera.scale;
   pointer.y = camera.y + (pointer.screenY - viewHeight / 2) / camera.scale;
 }

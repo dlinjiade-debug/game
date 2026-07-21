@@ -217,6 +217,65 @@ button {
   background: radial-gradient(circle at 35% 28%, #bae6fd, #0ea5e9 45%, #075985);
 }
 
+.joystick {
+  position: fixed;
+  left: max(22px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 3;
+  display: none;
+  width: 132px;
+  height: 132px;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(250, 204, 21, 0.14), transparent 36%),
+    rgba(8, 13, 34, 0.56);
+  box-shadow:
+    inset 0 0 28px rgba(147, 197, 253, 0.18),
+    0 0 28px rgba(14, 165, 233, 0.18),
+    0 16px 32px rgba(0, 0, 0, 0.32);
+  touch-action: none;
+}
+
+.joystick::before,
+.joystick::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.joystick::before {
+  left: 50%;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.joystick::after {
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.joystick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58px;
+  height: 58px;
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  background: radial-gradient(circle at 34% 28%, #ffffff, #93c5fd 36%, #2563eb);
+  box-shadow:
+    0 6px 0 rgba(30, 64, 175, 0.72),
+    0 0 24px rgba(147, 197, 253, 0.48);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .rotate-device {
   position: fixed;
   inset: 0;
@@ -264,11 +323,20 @@ button {
   .mobile-actions {
     display: flex;
   }
+
+  .joystick {
+    display: block;
+  }
 }
 
 @media (orientation: portrait) and (pointer: coarse) {
   .rotate-device {
     display: grid;
+  }
+
+  .joystick,
+  .mobile-actions {
+    display: none;
   }
 }
 
@@ -321,5 +389,10 @@ button {
   .action.primary {
     min-width: 96px;
     min-height: 74px;
+  }
+
+  .joystick {
+    left: max(24px, env(safe-area-inset-left));
+    bottom: max(18px, env(safe-area-inset-bottom));
   }
 }
