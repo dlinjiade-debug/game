@@ -217,18 +217,20 @@ button {
   background: radial-gradient(circle at 35% 28%, #bae6fd, #0ea5e9 45%, #075985);
 }
 
-.joystick {
+.direction-pad {
   position: fixed;
   left: max(22px, env(safe-area-inset-left));
   bottom: max(18px, env(safe-area-inset-bottom));
   z-index: 3;
   display: none;
-  width: 132px;
-  height: 132px;
-  border: 2px solid rgba(255, 255, 255, 0.42);
-  border-radius: 999px;
+  grid-template-columns: repeat(3, 54px);
+  grid-template-rows: repeat(3, 54px);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(250, 204, 21, 0.34);
+  border-radius: 18px;
   background:
-    radial-gradient(circle at 50% 50%, rgba(250, 204, 21, 0.14), transparent 36%),
+    radial-gradient(circle at 50% 50%, rgba(250, 204, 21, 0.12), transparent 48%),
     rgba(8, 13, 34, 0.56);
   box-shadow:
     inset 0 0 28px rgba(147, 197, 253, 0.18),
@@ -237,43 +239,63 @@ button {
   touch-action: none;
 }
 
-.joystick::before,
-.joystick::after {
-  content: "";
-  position: absolute;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.joystick::before {
-  left: 50%;
-  top: 16px;
-  bottom: 16px;
-  width: 2px;
-  transform: translateX(-50%);
-}
-
-.joystick::after {
-  left: 16px;
-  right: 16px;
-  top: 50%;
-  height: 2px;
-  transform: translateY(-50%);
-}
-
-.joystick-knob {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 58px;
-  height: 58px;
+.pad-key,
+.pad-center {
+  width: 54px;
+  height: 54px;
+  padding: 0;
   border: 2px solid rgba(255, 255, 255, 0.82);
-  border-radius: 999px;
+  border-radius: 14px;
+  color: #f8fafc;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
   background: radial-gradient(circle at 34% 28%, #ffffff, #93c5fd 36%, #2563eb);
   box-shadow:
-    0 6px 0 rgba(30, 64, 175, 0.72),
+    0 5px 0 rgba(30, 64, 175, 0.72),
     0 0 24px rgba(147, 197, 253, 0.48);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
+  touch-action: manipulation;
+}
+
+.pad-key:active,
+.pad-key.pressed {
+  transform: translateY(4px);
+  box-shadow:
+    0 1px 0 rgba(30, 64, 175, 0.72),
+    0 0 28px rgba(250, 204, 21, 0.42);
+  background: radial-gradient(circle at 34% 28%, #fef08a, #f59e0b 44%, #b45309);
+}
+
+.pad-center {
+  color: rgba(255, 255, 255, 0.38);
+  background: rgba(15, 23, 42, 0.62);
+  box-shadow: inset 0 0 18px rgba(147, 197, 253, 0.16);
+}
+
+.pad-key.up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.pad-key.left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.pad-center {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.pad-key.right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.pad-key.down {
+  grid-column: 2;
+  grid-row: 3;
 }
 
 .rotate-device {
@@ -324,8 +346,8 @@ button {
     display: flex;
   }
 
-  .joystick {
-    display: block;
+  .direction-pad {
+    display: grid;
   }
 }
 
@@ -334,7 +356,7 @@ button {
     display: grid;
   }
 
-  .joystick,
+  .direction-pad,
   .mobile-actions {
     display: none;
   }
@@ -391,7 +413,7 @@ button {
     min-height: 74px;
   }
 
-  .joystick {
+  .direction-pad {
     left: max(24px, env(safe-area-inset-left));
     bottom: max(18px, env(safe-area-inset-bottom));
   }

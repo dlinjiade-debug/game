@@ -6,7 +6,7 @@ import {
   splitPlayer,
   stepWorld,
 } from './simulation.js';
-import { calculateJoystick } from './input.js';
+import { directionFromKeys } from './input.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -18,8 +18,7 @@ const resultTitle = document.querySelector('#resultTitle');
 const restart = document.querySelector('#restart');
 const mobileSplit = document.querySelector('#mobileSplit');
 const mobileEject = document.querySelector('#mobileEject');
-const joystick = document.querySelector('#joystick');
-const joystickKnob = document.querySelector('#joystickKnob');
+const directionPad = document.querySelector('#directionPad');
 
 let state = createInitialState();
 let lastTime = performance.now();
@@ -28,8 +27,8 @@ let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
 let pixelRatio = window.devicePixelRatio || 1;
 let triedLandscapeLock = false;
-let joystickPointerId = null;
-let joystickDirection = { x: 0, y: 0, strength: 0, active: false };
+const pressedDirections = new Set();
+let padDirection = { x: 0, y: 0, active: false };
 
 const pointer = {
   x: CONFIG.worldSize / 2,
@@ -57,10 +56,12 @@ mobileEject.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   performEject();
 });
-joystick.addEventListener('pointerdown', handleJoystickStart);
-joystick.addEventListener('pointermove', handleJoystickMove);
-joystick.addEventListener('pointerup', handleJoystickEnd);
-joystick.addEventListener('pointercancel', handleJoystickEnd);
+for (const key of directionPad.querySelectorAll('[data-dir]')) {
+  key.addEventListener('pointerdown', handlePadStart);
+  key.addEventListener('pointerup', handlePadEnd);
+  key.addEventListener('pointercancel', handlePadEnd);
+  key.addEventListener('pointerleave', handlePadEnd);
+}
 
 requestAnimationFrame(loop);
 
@@ -91,46 +92,33 @@ function handleKeydown(event) {
 
 function handleTouch(event) {
   tryLandscapeLock();
-  if (event.target.closest('button') || event.target.closest('.joystick')) return;
+  if (event.target.closest('button') || event.target.closest('.direction-pad')) return;
   event.preventDefault();
   const touch = event.changedTouches[0];
   if (!touch) return;
   setPointerFromClient(touch.clientX, touch.clientY);
 }
 
-function handleJoystickStart(event) {
+function handlePadStart(event) {
   event.preventDefault();
   tryLandscapeLock();
-  joystickPointerId = event.pointerId;
-  joystick.setPointerCapture(event.pointerId);
-  updateJoystick(event);
+  const direction = event.currentTarget.dataset.dir;
+  pressedDirections.add(direction);
+  event.currentTarget.classList.add('pressed');
+  event.currentTarget.setPointerCapture(event.pointerId);
+  updatePadDirection();
 }
 
-function handleJoystickMove(event) {
-  if (event.pointerId !== joystickPointerId) return;
+function handlePadEnd(event) {
   event.preventDefault();
-  updateJoystick(event);
+  const direction = event.currentTarget.dataset.dir;
+  pressedDirections.delete(direction);
+  event.currentTarget.classList.remove('pressed');
+  updatePadDirection();
 }
 
-function handleJoystickEnd(event) {
-  if (event.pointerId !== joystickPointerId) return;
-  event.preventDefault();
-  joystickPointerId = null;
-  joystickDirection = { x: 0, y: 0, strength: 0, active: false };
-  joystickKnob.style.transform = 'translate(-50%, -50%)';
-}
-
-function updateJoystick(event) {
-  const rect = joystick.getBoundingClientRect();
-  const result = calculateJoystick({
-    clientX: event.clientX,
-    clientY: event.clientY,
-    centerX: rect.left + rect.width / 2,
-    centerY: rect.top + rect.height / 2,
-    maxDistance: rect.width * 0.34,
-  });
-  joystickDirection = result;
-  joystickKnob.style.transform = `translate(calc(-50% + ${result.knobX}px), calc(-50% + ${result.knobY}px))`;
+function updatePadDirection() {
+  padDirection = directionFromKeys(pressedDirections);
 }
 
 async function tryLandscapeLock() {
@@ -182,11 +170,11 @@ function setPointerFromClient(clientX, clientY) {
 }
 
 function updatePointerWorld() {
-  if (joystickDirection.active) {
+  if (padDirection.active) {
     const center = playerCenter();
-    const reach = 650 + joystickDirection.strength * 520;
-    pointer.x = center.x + joystickDirection.x * reach;
-    pointer.y = center.y + joystickDirection.y * reach;
+    const reach = 1050;
+    pointer.x = center.x + padDirection.x * reach;
+    pointer.y = center.y + padDirection.y * reach;
     return;
   }
 

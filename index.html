@@ -28,8 +28,12 @@
       <button id="mobileEject" class="action secondary" type="button">吐球</button>
       <button id="mobileSplit" class="action primary" type="button">分身</button>
     </div>
-    <div id="joystick" class="joystick" aria-label="移动轮盘">
-      <div id="joystickKnob" class="joystick-knob"></div>
+    <div id="directionPad" class="direction-pad" aria-label="方向操控">
+      <button class="pad-key up" type="button" data-dir="up" aria-label="向上">▲</button>
+      <button class="pad-key left" type="button" data-dir="left" aria-label="向左">◀</button>
+      <button class="pad-center" type="button" aria-label="方向中心">●</button>
+      <button class="pad-key right" type="button" data-dir="right" aria-label="向右">▶</button>
+      <button class="pad-key down" type="button" data-dir="down" aria-label="向下">▼</button>
     </div>
     <div id="toast" class="toast"></div>
     <div id="endScreen" class="end-screen hidden">
