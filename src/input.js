@@ -1,22 +1,22 @@
-const VECTORS = {
-  up: { x: 0, y: -1 },
-  down: { x: 0, y: 1 },
-  left: { x: -1, y: 0 },
-  right: { x: 1, y: 0 },
-};
+export function calculateJoystick({ clientX, clientY, centerX, centerY, maxDistance }) {
+  const dx = clientX - centerX;
+  const dy = clientY - centerY;
+  const distance = Math.hypot(dx, dy);
 
-export function directionFromKeys(keys) {
-  let x = 0;
-  let y = 0;
-
-  for (const key of keys) {
-    const vector = VECTORS[key];
-    if (!vector) continue;
-    x += vector.x;
-    y += vector.y;
+  if (distance < 8) {
+    return { x: 0, y: 0, knobX: 0, knobY: 0, strength: 0, active: false };
   }
 
-  const length = Math.hypot(x, y);
-  if (length < 0.0001) return { x: 0, y: 0, active: false };
-  return { x: x / length, y: y / length, active: true };
+  const clampedDistance = Math.min(distance, maxDistance);
+  const x = dx / distance;
+  const y = dy / distance;
+
+  return {
+    x,
+    y,
+    knobX: x * clampedDistance,
+    knobY: y * clampedDistance,
+    strength: clampedDistance / maxDistance,
+    active: true,
+  };
 }

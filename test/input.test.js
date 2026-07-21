@@ -1,22 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { directionFromKeys } from '../src/input.js';
+import { calculateJoystick } from '../src/input.js';
 
-test('directionFromKeys returns cardinal directions for one pressed key', () => {
-  assert.deepEqual(directionFromKeys(new Set(['up'])), { x: 0, y: -1, active: true });
-  assert.deepEqual(directionFromKeys(new Set(['right'])), { x: 1, y: 0, active: true });
-});
-
-test('directionFromKeys normalizes diagonal movement', () => {
-  const result = directionFromKeys(new Set(['up', 'right']));
-  const expected = Math.SQRT1_2;
+test('calculateJoystick clamps the sliding ball inside the wheel', () => {
+  const result = calculateJoystick({
+    clientX: 220,
+    clientY: 100,
+    centerX: 100,
+    centerY: 100,
+    maxDistance: 60,
+  });
 
   assert.equal(result.active, true);
-  assert.ok(Math.abs(result.x - expected) < 0.0001);
-  assert.ok(Math.abs(result.y + expected) < 0.0001);
+  assert.equal(result.knobX, 60);
+  assert.equal(result.knobY, 0);
+  assert.equal(result.x, 1);
+  assert.equal(result.y, 0);
+  assert.equal(result.strength, 1);
 });
 
-test('directionFromKeys is idle with no pressed keys', () => {
-  assert.deepEqual(directionFromKeys(new Set()), { x: 0, y: 0, active: false });
+test('calculateJoystick returns proportional strength for short drags', () => {
+  const result = calculateJoystick({
+    clientX: 130,
+    clientY: 100,
+    centerX: 100,
+    centerY: 100,
+    maxDistance: 60,
+  });
+
+  assert.equal(result.active, true);
+  assert.equal(result.knobX, 30);
+  assert.equal(result.strength, 0.5);
+});
+
+test('calculateJoystick is idle near the center', () => {
+  const result = calculateJoystick({
+    clientX: 103,
+    clientY: 104,
+    centerX: 100,
+    centerY: 100,
+    maxDistance: 60,
+  });
+
+  assert.deepEqual(result, { x: 0, y: 0, knobX: 0, knobY: 0, strength: 0, active: false });
 });
