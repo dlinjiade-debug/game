@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <title>球球大作战：大逃杀</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -18,11 +18,15 @@
     </div>
     <div class="hud bottom-left">
       <div class="keys">
-        <span>鼠标移动</span>
+        <span>鼠标/触摸移动</span>
         <span>Space 分身</span>
         <span>W 吐球</span>
         <span>R 重开</span>
       </div>
+    </div>
+    <div class="mobile-actions" aria-label="手机操作按钮">
+      <button id="mobileEject" class="action secondary" type="button">吐球</button>
+      <button id="mobileSplit" class="action primary" type="button">分身</button>
     </div>
     <div id="toast" class="toast"></div>
     <div id="endScreen" class="end-screen hidden">

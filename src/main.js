@@ -15,33 +15,40 @@ const toast = document.querySelector('#toast');
 const endScreen = document.querySelector('#endScreen');
 const resultTitle = document.querySelector('#resultTitle');
 const restart = document.querySelector('#restart');
+const mobileSplit = document.querySelector('#mobileSplit');
+const mobileEject = document.querySelector('#mobileEject');
 
 let state = createInitialState();
 let lastTime = performance.now();
 let toastTimer = 0;
-const pointer = { x: 0, y: 0, screenX: window.innerWidth / 2, screenY: window.innerHeight / 2 };
+let viewWidth = window.innerWidth;
+let viewHeight = window.innerHeight;
+let pixelRatio = window.devicePixelRatio || 1;
+
+const pointer = {
+  x: CONFIG.worldSize / 2,
+  y: CONFIG.worldSize / 2,
+  screenX: viewWidth / 2,
+  screenY: viewHeight / 2,
+};
 const camera = { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2, scale: 1 };
 
 resize();
 window.addEventListener('resize', resize);
-window.addEventListener('mousemove', (event) => {
-  pointer.screenX = event.clientX;
-  pointer.screenY = event.clientY;
-});
-window.addEventListener('keydown', (event) => {
-  if (event.repeat) return;
-  if (event.code === 'Space') {
-    event.preventDefault();
-    splitPlayer(state, directionFromPlayerToPointer());
-    flash('分身');
-  }
-  if (event.code === 'KeyW') {
-    ejectMass(state, directionFromPlayerToPointer());
-    flash('吐球');
-  }
-  if (event.code === 'KeyR') reset();
-});
+window.addEventListener('orientationchange', () => window.setTimeout(resize, 120));
+window.addEventListener('mousemove', (event) => setPointerFromClient(event.clientX, event.clientY));
+window.addEventListener('touchstart', handleTouch, { passive: false });
+window.addEventListener('touchmove', handleTouch, { passive: false });
+window.addEventListener('keydown', handleKeydown);
 restart.addEventListener('click', reset);
+mobileSplit.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  performSplit();
+});
+mobileEject.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  performEject();
+});
 
 requestAnimationFrame(loop);
 
@@ -50,8 +57,7 @@ function loop(now) {
   lastTime = now;
 
   updateCamera();
-  pointer.x = camera.x + (pointer.screenX - canvas.width / 2) / camera.scale;
-  pointer.y = camera.y + (pointer.screenY - canvas.height / 2) / camera.scale;
+  updatePointerWorld();
   stepWorld(state, { pointerWorld: pointer }, dt);
   updateCamera();
   draw();
@@ -59,42 +65,85 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+function handleKeydown(event) {
+  if (event.repeat) return;
+  if (event.code === 'Space') {
+    event.preventDefault();
+    performSplit();
+  }
+  if (event.code === 'KeyW') {
+    performEject();
+  }
+  if (event.code === 'KeyR') reset();
+}
+
+function handleTouch(event) {
+  if (event.target.closest('button')) return;
+  event.preventDefault();
+  const touch = event.changedTouches[0];
+  if (!touch) return;
+  setPointerFromClient(touch.clientX, touch.clientY);
+}
+
+function performSplit() {
+  splitPlayer(state, directionFromPlayerToPointer());
+  flash('分身');
+}
+
+function performEject() {
+  ejectMass(state, directionFromPlayerToPointer());
+  flash('吐球');
+}
+
 function reset() {
   state = createInitialState();
   endScreen.classList.add('hidden');
   lastTime = performance.now();
+  setPointerFromClient(viewWidth / 2, viewHeight / 2);
 }
 
 function resize() {
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(window.innerWidth * ratio);
-  canvas.height = Math.floor(window.innerHeight * ratio);
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  pixelRatio = window.devicePixelRatio || 1;
+  viewWidth = window.innerWidth;
+  viewHeight = window.innerHeight;
+  canvas.width = Math.floor(viewWidth * pixelRatio);
+  canvas.height = Math.floor(viewHeight * pixelRatio);
+  canvas.style.width = `${viewWidth}px`;
+  canvas.style.height = `${viewHeight}px`;
+}
+
+function setPointerFromClient(clientX, clientY) {
+  pointer.screenX = clamp(clientX, 0, viewWidth);
+  pointer.screenY = clamp(clientY, 0, viewHeight);
+}
+
+function updatePointerWorld() {
+  pointer.x = camera.x + (pointer.screenX - viewWidth / 2) / camera.scale;
+  pointer.y = camera.y + (pointer.screenY - viewHeight / 2) / camera.scale;
 }
 
 function updateCamera() {
   const center = playerCenter();
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
-  const targetScale = clamp(1.1 - Math.sqrt(totalMass) / 120, 0.42, 0.95) * (window.devicePixelRatio || 1);
+  const mobileZoomOut = viewWidth < 700 ? 0.82 : 1;
+  const targetScale = clamp(1.1 - Math.sqrt(totalMass) / 120, 0.42, 0.95) * mobileZoomOut;
   camera.x += (center.x - camera.x) * 0.08;
   camera.y += (center.y - camera.y) * 0.08;
   camera.scale += (targetScale - camera.scale) * 0.06;
 }
 
 function draw() {
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, viewWidth, viewHeight);
+  const gradient = ctx.createLinearGradient(0, 0, viewWidth, viewHeight);
   gradient.addColorStop(0, '#08111f');
   gradient.addColorStop(0.55, '#111827');
   gradient.addColorStop(1, '#130f24');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.restore();
+  ctx.fillRect(0, 0, viewWidth, viewHeight);
 
   ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.translate(viewWidth / 2, viewHeight / 2);
   ctx.scale(camera.scale, camera.scale);
   ctx.translate(-camera.x, -camera.y);
 
@@ -214,17 +263,16 @@ function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
 }
 
 function drawMinimap() {
-  const size = 140;
-  const left = canvas.width - size - 18;
-  const top = canvas.height - size - 18;
+  const size = viewWidth < 700 ? 96 : 140;
+  const left = viewWidth - size - 18;
+  const top = viewHeight - size - 18 - (viewWidth < 700 ? 82 : 0);
   const scale = size / CONFIG.worldSize;
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.beginPath();
+  ctx.roundRect(left, top, size, size, 8);
   ctx.fillStyle = 'rgba(8, 13, 28, 0.78)';
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(left, top, size, size, 8);
   ctx.fill();
   ctx.stroke();
 

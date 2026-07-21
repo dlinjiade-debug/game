@@ -14,6 +14,9 @@ body {
   overflow: hidden;
   min-height: 100vh;
   background: #070914;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
 }
 
 canvas {
@@ -21,6 +24,7 @@ canvas {
   width: 100vw;
   height: 100vh;
   cursor: crosshair;
+  touch-action: none;
 }
 
 .hud {
@@ -146,6 +150,38 @@ button {
   cursor: pointer;
 }
 
+.mobile-actions {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 3;
+  display: none;
+  gap: 12px;
+  align-items: end;
+  pointer-events: none;
+}
+
+.action {
+  pointer-events: auto;
+  min-width: 74px;
+  min-height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  touch-action: manipulation;
+}
+
+.action.primary {
+  min-width: 88px;
+  min-height: 70px;
+  background: #7c3aed;
+}
+
+.action.secondary {
+  background: #0f766e;
+}
+
 @media (max-width: 700px) {
   .top-right {
     display: none;
@@ -153,5 +189,26 @@ button {
 
   .top-left {
     right: 14px;
+    min-width: 0;
+    padding: 10px 11px;
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+
+  .brand {
+    font-size: 15px;
+  }
+
+  #stats {
+    grid-template-columns: repeat(2, auto);
+    column-gap: 10px;
+    font-size: 12px;
+  }
+
+  .bottom-left {
+    display: none;
+  }
+
+  .mobile-actions {
+    display: flex;
   }
 }
