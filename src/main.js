@@ -32,6 +32,7 @@ const pointer = {
   screenY: viewHeight / 2,
 };
 const camera = { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2, scale: 1 };
+const stars = Array.from({ length: 240 }, (_, index) => makeStar(index));
 
 resize();
 window.addEventListener('resize', resize);
@@ -87,12 +88,12 @@ function handleTouch(event) {
 
 function performSplit() {
   splitPlayer(state, directionFromPlayerToPointer());
-  flash('分身');
+  flash('分身冲刺');
 }
 
 function performEject() {
   ejectMass(state, directionFromPlayerToPointer());
-  flash('吐球');
+  flash('吐球加速');
 }
 
 function reset() {
@@ -135,12 +136,7 @@ function updateCamera() {
 function draw() {
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   ctx.clearRect(0, 0, viewWidth, viewHeight);
-  const gradient = ctx.createLinearGradient(0, 0, viewWidth, viewHeight);
-  gradient.addColorStop(0, '#08111f');
-  gradient.addColorStop(0.55, '#111827');
-  gradient.addColorStop(1, '#130f24');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, viewWidth, viewHeight);
+  drawSpaceBackdrop();
 
   ctx.save();
   ctx.translate(viewWidth / 2, viewHeight / 2);
@@ -159,17 +155,55 @@ function draw() {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.055)';
   ctx.lineWidth = 1 / camera.scale;
-  for (let x = 0; x <= CONFIG.worldSize; x += 180) {
+  for (let x = 0; x <= CONFIG.worldSize; x += 240) {
     line(x, 0, x, CONFIG.worldSize);
   }
-  for (let y = 0; y <= CONFIG.worldSize; y += 180) {
+  for (let y = 0; y <= CONFIG.worldSize; y += 240) {
     line(0, y, CONFIG.worldSize, y);
   }
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.lineWidth = 5 / camera.scale;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.32)';
+  ctx.lineWidth = 4 / camera.scale;
   ctx.strokeRect(0, 0, CONFIG.worldSize, CONFIG.worldSize);
+}
+
+function drawSpaceBackdrop() {
+  const gradient = ctx.createRadialGradient(viewWidth * 0.48, viewHeight * 0.42, 30, viewWidth * 0.5, viewHeight * 0.5, Math.max(viewWidth, viewHeight));
+  gradient.addColorStop(0, '#281a52');
+  gradient.addColorStop(0.34, '#121638');
+  gradient.addColorStop(0.72, '#080d22');
+  gradient.addColorStop(1, '#030614');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, viewWidth, viewHeight);
+
+  drawNebula(viewWidth * 0.2, viewHeight * 0.18, viewWidth * 0.45, 'rgba(124, 58, 237, 0.18)');
+  drawNebula(viewWidth * 0.82, viewHeight * 0.72, viewWidth * 0.38, 'rgba(14, 165, 233, 0.13)');
+  drawNebula(viewWidth * 0.55, viewHeight * 0.18, viewWidth * 0.32, 'rgba(236, 72, 153, 0.10)');
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (const star of stars) {
+    const x = wrap(star.x - camera.x * star.depth * 0.04, viewWidth);
+    const y = wrap(star.y - camera.y * star.depth * 0.04, viewHeight);
+    ctx.globalAlpha = star.alpha;
+    ctx.fillStyle = star.color;
+    ctx.beginPath();
+    ctx.arc(x, y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawNebula(x, y, radius, color) {
+  const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  gradient.addColorStop(0, color);
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawZone() {
@@ -177,32 +211,46 @@ function drawZone() {
   ctx.beginPath();
   ctx.rect(-1000, -1000, CONFIG.worldSize + 2000, CONFIG.worldSize + 2000);
   ctx.arc(state.zone.x, state.zone.y, state.zone.radius, 0, Math.PI * 2, true);
-  ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
+  ctx.fillStyle = 'rgba(88, 28, 135, 0.28)';
   ctx.fill('evenodd');
 
   ctx.beginPath();
   ctx.arc(state.zone.x, state.zone.y, state.zone.radius, 0, Math.PI * 2);
-  ctx.lineWidth = 8 / camera.scale;
-  ctx.strokeStyle = '#f97316';
+  ctx.shadowColor = '#facc15';
+  ctx.shadowBlur = 26 / camera.scale;
+  ctx.lineWidth = 10 / camera.scale;
+  ctx.strokeStyle = '#fde047';
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 3 / camera.scale;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
   ctx.stroke();
   ctx.restore();
 }
 
 function drawPellets() {
   for (const pellet of state.pellets) {
+    ctx.save();
+    ctx.shadowColor = `hsl(${pellet.hue} 90% 68%)`;
+    ctx.shadowBlur = 10 / camera.scale;
     ctx.beginPath();
-    ctx.fillStyle = `hsl(${pellet.hue} 82% 66%)`;
-    ctx.arc(pellet.x, pellet.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = `hsl(${pellet.hue} 95% 68%)`;
+    ctx.arc(pellet.x, pellet.y, 5.5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
 function drawEjected() {
   for (const item of state.ejected) {
+    ctx.save();
+    ctx.shadowColor = '#bae6fd';
+    ctx.shadowBlur = 18 / camera.scale;
     ctx.beginPath();
     ctx.fillStyle = '#e0f2fe';
-    ctx.arc(item.x, item.y, 9, 0, Math.PI * 2);
+    ctx.arc(item.x, item.y, 10, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -225,25 +273,42 @@ function drawAllCells() {
 
 function drawCell(cell, owner) {
   const radius = radiusFromMass(cell.mass);
+  const isPlayer = owner.id === 'player';
+  const fill = cellGradient(cell.x, cell.y, radius, owner.color, isPlayer);
   ctx.save();
+  ctx.shadowColor = isPlayer ? '#fef3c7' : owner.color;
+  ctx.shadowBlur = (isPlayer ? 28 : 16) / camera.scale;
   ctx.beginPath();
-  ctx.fillStyle = owner.color;
-  ctx.strokeStyle = owner.id === 'player' ? '#ddd6fe' : 'rgba(255,255,255,0.62)';
-  ctx.lineWidth = owner.id === 'player' ? 5 / camera.scale : 3 / camera.scale;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = isPlayer ? '#ffffff' : 'rgba(255,255,255,0.76)';
+  ctx.lineWidth = isPlayer ? 7 / camera.scale : 4 / camera.scale;
   ctx.arc(cell.x, cell.y, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 0.34;
+  ctx.beginPath();
   ctx.fillStyle = '#ffffff';
+  ctx.arc(cell.x - radius * 0.32, cell.y - radius * 0.35, radius * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.lineWidth = Math.max(3 / camera.scale, radius * 0.035);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${Math.max(14, radius * 0.28)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `800 ${Math.max(14, radius * 0.28)}px "Microsoft YaHei", sans-serif`;
+  ctx.strokeText(owner.name, cell.x, cell.y);
   ctx.fillText(owner.name, cell.x, cell.y);
   ctx.restore();
 }
 
 function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
   ctx.save();
+  ctx.shadowColor = fill;
+  ctx.shadowBlur = 24 / camera.scale;
   ctx.beginPath();
   for (let i = 0; i < spikes * 2; i += 1) {
     const angle = (Math.PI * i) / spikes;
@@ -270,8 +335,8 @@ function drawMinimap() {
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(left, top, size, size, 8);
-  ctx.fillStyle = 'rgba(8, 13, 28, 0.78)';
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+  ctx.fillStyle = 'rgba(6, 10, 28, 0.82)';
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
   ctx.lineWidth = 1;
   ctx.fill();
   ctx.stroke();
@@ -295,10 +360,10 @@ function updateHud() {
   const alive = state.ai.length + (state.player.cells.length > 0 ? 1 : 0);
   const zonePercent = Math.round((state.zone.radius / CONFIG.startZoneRadius) * 100);
   stats.innerHTML = `
-    <div>质量：${Math.round(totalMass)}</div>
-    <div>分身：${state.player.cells.length}/${CONFIG.maxPlayerCells}</div>
-    <div>存活：${alive}</div>
-    <div>安全区：${zonePercent}%</div>
+    <div><b>质量</b>${Math.round(totalMass)}</div>
+    <div><b>分身</b>${state.player.cells.length}/${CONFIG.maxPlayerCells}</div>
+    <div><b>存活</b>${alive}</div>
+    <div><b>安全区</b>${zonePercent}%</div>
   `;
 
   leaderboard.innerHTML = leaders()
@@ -367,4 +432,47 @@ function dot(x, y, radius, color) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function cellGradient(x, y, radius, color, isPlayer) {
+  const gradient = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.45, radius * 0.12, x, y, radius);
+  if (isPlayer) {
+    gradient.addColorStop(0, '#fff7ad');
+    gradient.addColorStop(0.22, '#fde68a');
+    gradient.addColorStop(0.74, '#f4b63f');
+    gradient.addColorStop(1, '#b45309');
+  } else {
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(0.26, color);
+    gradient.addColorStop(1, shadeColor(color, -34));
+  }
+  return gradient;
+}
+
+function shadeColor(hex, percent) {
+  const clean = hex.replace('#', '');
+  const value = Number.parseInt(clean.length === 3 ? clean.split('').map((part) => part + part).join('') : clean, 16);
+  const amount = Math.round(2.55 * percent);
+  const red = clamp((value >> 16) + amount, 0, 255);
+  const green = clamp(((value >> 8) & 0xff) + amount, 0, 255);
+  const blue = clamp((value & 0xff) + amount, 0, 255);
+  return `rgb(${red}, ${green}, ${blue})`;
+}
+
+function makeStar(index) {
+  const random = Math.sin(index * 999.91) * 10000;
+  const random2 = Math.sin(index * 237.19) * 10000;
+  const random3 = Math.sin(index * 531.77) * 10000;
+  return {
+    x: Math.abs(random % 1) * Math.max(window.innerWidth, 320),
+    y: Math.abs(random2 % 1) * Math.max(window.innerHeight, 320),
+    size: 0.6 + Math.abs(random3 % 1) * 2.2,
+    alpha: 0.28 + Math.abs(random % 1) * 0.72,
+    depth: 0.4 + Math.abs(random2 % 1) * 1.6,
+    color: Math.abs(random3 % 1) > 0.75 ? '#fef3c7' : '#dbeafe',
+  };
+}
+
+function wrap(value, size) {
+  return ((value % size) + size) % size;
 }
