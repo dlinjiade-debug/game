@@ -217,7 +217,62 @@ button {
   background: radial-gradient(circle at 35% 28%, #bae6fd, #0ea5e9 45%, #075985);
 }
 
-@media (max-width: 700px) {
+.rotate-device {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(250, 204, 21, 0.18), transparent 42vw),
+    rgba(3, 6, 16, 0.94);
+}
+
+.phone-icon {
+  width: 78px;
+  height: 118px;
+  border: 5px solid #fef08a;
+  border-radius: 18px;
+  box-shadow: 0 0 24px rgba(250, 204, 21, 0.42);
+  transform: rotate(90deg);
+}
+
+.rotate-title {
+  font-size: clamp(28px, 8vw, 56px);
+  font-weight: 900;
+  color: #fef08a;
+  -webkit-text-stroke: 1px #7c2d12;
+  text-shadow: 0 4px 0 #431407, 0 0 22px rgba(250, 204, 21, 0.45);
+}
+
+.rotate-copy {
+  max-width: 320px;
+  color: #dbeafe;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+@media (pointer: coarse) {
+  .bottom-left {
+    display: none;
+  }
+
+  .mobile-actions {
+    display: flex;
+  }
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-device {
+    display: grid;
+  }
+}
+
+@media (max-width: 700px), (max-height: 520px) and (pointer: coarse) {
   .top-right {
     display: none;
   }
@@ -239,11 +294,32 @@ button {
     font-size: 12px;
   }
 
-  .bottom-left {
-    display: none;
+  .mobile-actions {
+    display: flex;
+  }
+}
+
+@media (orientation: landscape) and (pointer: coarse) {
+  .top-left {
+    top: max(8px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    right: auto;
+    max-width: 240px;
   }
 
   .mobile-actions {
-    display: flex;
+    right: max(18px, env(safe-area-inset-right));
+    bottom: max(18px, env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+
+  .action {
+    min-width: 78px;
+    min-height: 58px;
+  }
+
+  .action.primary {
+    min-width: 96px;
+    min-height: 74px;
   }
 }

@@ -24,6 +24,7 @@ let toastTimer = 0;
 let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
 let pixelRatio = window.devicePixelRatio || 1;
+let triedLandscapeLock = false;
 
 const pointer = {
   x: CONFIG.worldSize / 2,
@@ -40,6 +41,7 @@ window.addEventListener('orientationchange', () => window.setTimeout(resize, 120
 window.addEventListener('mousemove', (event) => setPointerFromClient(event.clientX, event.clientY));
 window.addEventListener('touchstart', handleTouch, { passive: false });
 window.addEventListener('touchmove', handleTouch, { passive: false });
+window.addEventListener('pointerdown', tryLandscapeLock, { passive: true });
 window.addEventListener('keydown', handleKeydown);
 restart.addEventListener('click', reset);
 mobileSplit.addEventListener('pointerdown', (event) => {
@@ -79,11 +81,28 @@ function handleKeydown(event) {
 }
 
 function handleTouch(event) {
+  tryLandscapeLock();
   if (event.target.closest('button')) return;
   event.preventDefault();
   const touch = event.changedTouches[0];
   if (!touch) return;
   setPointerFromClient(touch.clientX, touch.clientY);
+}
+
+async function tryLandscapeLock() {
+  if (triedLandscapeLock || !isTouchDevice()) return;
+  triedLandscapeLock = true;
+
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+    }
+    if (screen.orientation?.lock) {
+      await screen.orientation.lock('landscape');
+    }
+  } catch {
+    // Mobile browsers often reject orientation lock unless installed/fullscreen.
+  }
 }
 
 function performSplit() {
@@ -432,6 +451,10 @@ function dot(x, y, radius, color) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function isTouchDevice() {
+  return window.matchMedia('(pointer: coarse)').matches;
 }
 
 function cellGradient(x, y, radius, color, isPlayer) {
