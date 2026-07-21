@@ -82,3 +82,11 @@ test('cells outside the safe zone lose mass', () => {
 
   assert.equal(state.player.cells[0].mass, 200 - CONFIG.zoneDamagePerSecond);
 });
+
+test('new games start with the player larger than every AI cell', () => {
+  const state = createInitialState({ seed: 19 });
+  const playerMass = state.player.cells[0].mass;
+  const largestAiMass = Math.max(...state.ai.flatMap((ai) => ai.cells.map((cell) => cell.mass)));
+
+  assert.ok(playerMass > largestAiMass);
+});

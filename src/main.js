@@ -126,8 +126,8 @@ function updatePointerWorld() {
 function updateCamera() {
   const center = playerCenter();
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
-  const mobileZoomOut = viewWidth < 700 ? 0.82 : 1;
-  const targetScale = clamp(1.1 - Math.sqrt(totalMass) / 120, 0.42, 0.95) * mobileZoomOut;
+  const mobileZoomOut = viewWidth < 700 ? 0.68 : 0.82;
+  const targetScale = clamp(0.88 - Math.sqrt(totalMass) / 150, 0.28, 0.72) * mobileZoomOut;
   camera.x += (center.x - camera.x) * 0.08;
   camera.y += (center.y - camera.y) * 0.08;
   camera.scale += (targetScale - camera.scale) * 0.06;

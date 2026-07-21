@@ -1,7 +1,7 @@
 export const CONFIG = {
   worldSize: 4200,
   maxPlayerCells: 16,
-  initialPlayerMass: 120,
+  initialPlayerMass: 180,
   pelletMass: 6,
   ejectCost: 18,
   ejectedMass: 14,
@@ -24,7 +24,7 @@ const COLORS = ['#34d399', '#60a5fa', '#f97316', '#e879f9', '#facc15', '#fb7185'
 
 export function createInitialState(options = {}) {
   const random = createRandom(options.seed ?? Date.now());
-  const aiCount = options.aiCount ?? 18;
+  const aiCount = options.aiCount ?? 14;
   const pelletCount = options.pelletCount ?? 520;
   const virusCount = options.virusCount ?? 24;
   const center = CONFIG.worldSize / 2;
@@ -58,12 +58,12 @@ export function createInitialState(options = {}) {
   for (let i = 0; i < virusCount; i += 1) spawnVirus(state);
   for (let i = 0; i < aiCount; i += 1) {
     const angle = random() * Math.PI * 2;
-    const distance = 450 + random() * 1200;
+    const distance = 850 + random() * 1450;
     state.ai.push({
       id: `ai-${i}`,
       name: AI_NAMES[i % AI_NAMES.length],
       color: COLORS[i % COLORS.length],
-      cells: [makeCell(`ai-${i}-cell`, center + Math.cos(angle) * distance, center + Math.sin(angle) * distance, 85 + random() * 140)],
+      cells: [makeCell(`ai-${i}-cell`, center + Math.cos(angle) * distance, center + Math.sin(angle) * distance, 55 + random() * 90)],
       intent: { x: 0, y: 0 },
     });
   }
