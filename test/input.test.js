@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { calculateJoystick } from '../src/input.js';
+import { calculateJoystick, cameraScaleForMass } from '../src/input.js';
 
 test('calculateJoystick clamps the sliding ball inside the wheel', () => {
   const result = calculateJoystick({
@@ -44,4 +44,13 @@ test('calculateJoystick is idle near the center', () => {
   });
 
   assert.deepEqual(result, { x: 0, y: 0, knobX: 0, knobY: 0, strength: 0, active: false });
+});
+
+test('cameraScaleForMass zooms out more on mobile and as mass grows', () => {
+  const smallMobile = cameraScaleForMass({ totalMass: 180, viewWidth: 640, viewHeight: 360 });
+  const largeMobile = cameraScaleForMass({ totalMass: 1600, viewWidth: 640, viewHeight: 360 });
+  const smallDesktop = cameraScaleForMass({ totalMass: 180, viewWidth: 1280, viewHeight: 720 });
+
+  assert.ok(smallMobile < smallDesktop);
+  assert.ok(largeMobile < smallMobile);
 });

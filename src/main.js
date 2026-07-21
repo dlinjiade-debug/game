@@ -6,7 +6,7 @@ import {
   splitPlayer,
   stepWorld,
 } from './simulation.js';
-import { calculateJoystick } from './input.js';
+import { calculateJoystick, cameraScaleForMass } from './input.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -199,8 +199,7 @@ function updatePointerWorld() {
 function updateCamera() {
   const center = playerCenter();
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
-  const mobileZoomOut = viewWidth < 700 ? 0.68 : 0.82;
-  const targetScale = clamp(0.88 - Math.sqrt(totalMass) / 150, 0.28, 0.72) * mobileZoomOut;
+  const targetScale = cameraScaleForMass({ totalMass, viewWidth, viewHeight });
   camera.x += (center.x - camera.x) * 0.08;
   camera.y += (center.y - camera.y) * 0.08;
   camera.scale += (targetScale - camera.scale) * 0.06;
@@ -401,9 +400,10 @@ function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
 }
 
 function drawMinimap() {
-  const size = viewWidth < 700 ? 96 : 140;
-  const left = viewWidth - size - 18;
-  const top = viewHeight - size - 18 - (viewWidth < 700 ? 82 : 0);
+  const isMobileLandscape = viewWidth < 900 && viewWidth > viewHeight;
+  const size = isMobileLandscape ? 112 : viewWidth < 700 ? 96 : 140;
+  const left = viewWidth - size - (isMobileLandscape ? 12 : 18);
+  const top = isMobileLandscape ? 10 : 18;
   const scale = size / CONFIG.worldSize;
   ctx.save();
   ctx.beginPath();
