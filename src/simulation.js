@@ -412,41 +412,83 @@ function playerCenterFromState(state) {
 
 // --- AI upgrade ---
 
+// AI personality types: affects decision weights
+const AI_PERSONALITIES = ['aggressive', 'defensive', 'collector', 'balanced'];
+
+function aiPersonality(ai) {
+  // Deterministic personality based on AI index
+  const idx = Number.parseInt(ai.id.split('-')[1], 10) || 0;
+  return AI_PERSONALITIES[idx % AI_PERSONALITIES.length];
+}
+
 function updateAi(state, dt) {
   const playerCells = state.player.cells;
+  const allCells = [state.player, ...state.ai].flatMap((o) =>
+    o.cells.map((c) => ({ cell: c, owner: o }))
+  );
   const zone = state.zone;
 
   for (const ai of state.ai) {
+    const personality = aiPersonality(ai);
+
     for (const cell of ai.cells) {
-      const threat = nearest(cell, playerCells.filter((p) => p.mass > cell.mass * 1.25));
+      // Threats: any cell (player or AI) that's bigger than this cell
+      const threat = nearest(cell, allCells.filter((c) => c.cell.mass > cell.mass * 1.25).map((c) => c.cell));
+      // Prey: player cells this AI can eat
       const prey = nearest(cell, playerCells.filter((p) => cell.mass > p.mass * CONFIG.eatRatio));
+      // AI prey: other AI cells this AI can eat
+      const aiPrey = nearest(cell, state.ai.flatMap((a) =>
+        a.id !== ai.id ? a.cells.filter((c) => cell.mass > c.mass * CONFIG.eatRatio) : []
+      ));
       const pellet = nearest(cell, state.pellets);
+      const ejected = nearest(cell, state.ejected.filter((e) => e.age > 0.45 || e.owner !== ai.id));
       const virus = nearest(cell, state.viruses);
 
+      // Determine target based on personality
       let target = pellet ?? { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2 };
 
       // Priority 1: Move toward zone if outside
       const distToZone = distance(cell, zone);
       if (distToZone > zone.radius * 0.85) {
         target = { x: zone.x, y: zone.y };
-      }
+      } else {
+        // Personality-based target selection
+        const seekRange = personality === 'aggressive' ? 850 : personality === 'defensive' ? 450 : 650;
 
-      // Priority 2: Seek prey
-      if (prey && distance(cell, prey) < 700) {
-        target = prey;
-      }
+        // Seek ejected mass (all personalities benefit from free food)
+        if (ejected && distance(cell, ejected) < seekRange * 0.8) {
+          target = ejected;
+        }
+        // Seek prey based on personality
+        else if (prey && distance(cell, prey) < seekRange) {
+          target = prey;
+        }
+        // Aggressive AIs also hunt other AIs
+        else if (personality === 'aggressive' && aiPrey && distance(cell, aiPrey) < seekRange * 0.7) {
+          target = aiPrey;
+        }
+        // Collectors prefer pellets
+        else if (personality === 'collector' && pellet && distance(cell, pellet) < 300) {
+          target = pellet;
+        }
 
-      // Priority 3: Flee from threats
-      if (threat && distance(cell, threat) < 520) {
-        target = { x: cell.x + (cell.x - threat.x), y: cell.y + (cell.y - threat.y) };
-      }
+        // Flee from threats (defensive AIs flee earlier)
+        const fleeRange = personality === 'defensive' ? 650 : personality === 'aggressive' ? 350 : 480;
+        if (threat && distance(cell, threat) < fleeRange) {
+          target = {
+            x: cell.x + (cell.x - threat.x),
+            y: cell.y + (cell.y - threat.y),
+          };
+        }
 
-      // Virus avoidance: steer away if heading toward a virus and cell is large enough to pop
-      if (virus && cell.mass > CONFIG.minVirusPopMass * 0.8 && distance(cell, virus) < 350) {
-        const awayX = cell.x - virus.x;
-        const awayY = cell.y - virus.y;
-        const awayLen = Math.hypot(awayX, awayY) || 1;
-        target = { x: cell.x + (awayX / awayLen) * 400, y: cell.y + (awayY / awayLen) * 400 };
+        // Virus avoidance: steer away from nearby viruses
+        const virusAvoidRange = 380;
+        if (virus && cell.mass > CONFIG.minVirusPopMass * 0.8 && distance(cell, virus) < virusAvoidRange) {
+          const awayX = cell.x - virus.x;
+          const awayY = cell.y - virus.y;
+          const awayLen = Math.hypot(awayX, awayY) || 1;
+          target = { x: cell.x + (awayX / awayLen) * 450, y: cell.y + (awayY / awayLen) * 450 };
+        }
       }
 
       moveCellToward(cell, target, dt);
@@ -462,14 +504,17 @@ function updateAi(state, dt) {
       const nearestPrey = nearest(ai.cells[0], playerCells.filter((p) => p.mass < totalMass / CONFIG.eatRatio));
       const nearestThreat = nearest(ai.cells[0], playerCells.filter((p) => p.mass > totalMass * 1.25));
 
+      const splitChaseRange = personality === 'aggressive' ? 520 : 400;
+      const splitFleeRange = personality === 'defensive' ? 380 : 260;
+
       // Split to eat close prey
-      if (nearestPrey && distance(ai.cells[0], nearestPrey) < 450 && ai.cells[0].mass > CONFIG.minSplitMass) {
+      if (nearestPrey && distance(ai.cells[0], nearestPrey) < splitChaseRange && ai.cells[0].mass > CONFIG.minSplitMass) {
         const dir = normalize({ x: nearestPrey.x - ai.cells[0].x, y: nearestPrey.y - ai.cells[0].y });
         splitAICell(state, ai, dir);
-        state.aiSplitCooldowns[ai.id] = 6;
+        state.aiSplitCooldowns[ai.id] = personality === 'aggressive' ? 4.5 : 6;
       }
       // Split to flee from very close threat
-      else if (nearestThreat && distance(ai.cells[0], nearestThreat) < 280 && ai.cells[0].mass > CONFIG.minSplitMass) {
+      else if (nearestThreat && distance(ai.cells[0], nearestThreat) < splitFleeRange && ai.cells[0].mass > CONFIG.minSplitMass) {
         const dir = normalize({ x: ai.cells[0].x - nearestThreat.x, y: ai.cells[0].y - nearestThreat.y });
         splitAICell(state, ai, dir);
         state.aiSplitCooldowns[ai.id] = 8;

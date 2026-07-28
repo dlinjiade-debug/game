@@ -1,9 +1,16 @@
+// Dead zone radius in screen pixels — below this, input is treated as neutral.
+// A dead zone of 12px prevents tiny unintentional movements from jitter.
+// Once activated, the release threshold is slightly higher (14px) to add
+// hysteresis and prevent rapid on/off flickering near the edge.
+const DEAD_ZONE = 12;
+const RELEASE_HYSTERESIS = 14;
+
 export function calculateJoystick({ clientX, clientY, centerX, centerY, maxDistance }) {
   const dx = clientX - centerX;
   const dy = clientY - centerY;
   const distance = Math.hypot(dx, dy);
 
-  if (distance < 8) {
+  if (distance < DEAD_ZONE) {
     return { x: 0, y: 0, knobX: 0, knobY: 0, strength: 0, active: false };
   }
 

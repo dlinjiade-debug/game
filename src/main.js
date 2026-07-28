@@ -7,7 +7,7 @@ import {
   stepWorld,
 } from './simulation.js';
 import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from './input.js';
-import { playEat, playSplit, playEject, playVirusPop, playDeath, playKill, initAudio } from './audio.js';
+import { playEat, playSplit, playEject, playVirusPop, playDeath, playKill, playZoneWarn, initAudio } from './audio.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -25,13 +25,18 @@ const joystickBall = document.querySelector('#joystickBall');
 let state = createInitialState();
 let lastTime = performance.now();
 let toastTimer = 0;
+let zoneWarnTimer = 0;
 let viewWidth = window.innerWidth;
 let viewHeight = window.innerHeight;
 let pixelRatio = window.devicePixelRatio || 1;
 let triedLandscapeLock = false;
 let joystickPointerId = null;
 let joystickDirection = { x: 0, y: 0, strength: 0, active: false };
+let joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
+let joystickLastMoveTime = 0;
+const JOYSTICK_IDLE_TIMEOUT = 250; // ms — safety reset if no pointermove received
 let isMoving = true;
+let playerVelocity = { x: 0, y: 0 };
 let shake = { x: 0, y: 0, intensity: 0 };
 let killFeed = [];
 let prevPlayerAlive = true;
@@ -51,21 +56,40 @@ window.addEventListener('orientationchange', () => window.setTimeout(resize, 120
 window.addEventListener('mousemove', (event) => setPointerFromClient(event.clientX, event.clientY));
 window.addEventListener('touchstart', handleTouch, { passive: false });
 window.addEventListener('touchmove', handleTouch, { passive: false });
+window.addEventListener('touchend', handleTouchEnd, { passive: false });
+window.addEventListener('touchcancel', handleTouchCancel, { passive: false });
 window.addEventListener('pointerdown', tryLandscapeLock, { passive: true });
 window.addEventListener('keydown', handleKeydown);
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) triedLandscapeLock = false;
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Save the time so we don't get a huge dt spike when returning
+    lastTime = performance.now();
+  }
+});
 restart.addEventListener('click', reset);
-mobileSplit.addEventListener('pointerdown', (event) => {
-  event.preventDefault();
-  performSplit();
-});
-mobileEject.addEventListener('pointerdown', (event) => {
-  event.preventDefault();
-  performEject();
-});
-joystick.addEventListener('pointerdown', handleJoystickStart);
-joystick.addEventListener('pointermove', handleJoystickMove);
-joystick.addEventListener('pointerup', handleJoystickEnd);
-joystick.addEventListener('pointercancel', handleJoystickEnd);
+if (mobileSplit) {
+  mobileSplit.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    performSplit();
+  });
+}
+if (mobileEject) {
+  mobileEject.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    performEject();
+  });
+}
+if (joystick) {
+  joystick.addEventListener('pointerdown', handleJoystickStart);
+  joystick.addEventListener('pointermove', handleJoystickMove);
+  joystick.addEventListener('pointerup', handleJoystickEnd);
+  joystick.addEventListener('pointercancel', handleJoystickEnd);
+  joystick.addEventListener('lostpointercapture', handleJoystickEnd);
+  joystick.addEventListener('touchcancel', handleJoystickEnd);
+}
 
 requestAnimationFrame(loop);
 
@@ -94,10 +118,11 @@ function loop(now) {
     killFeed.unshift({ text: `⚡ 你 消灭了 ${dead.name}`, time: performance.now() });
     if (killFeed.length > 8) killFeed.length = 8;
   }
-  if (deadAIs.length > 0) triggerShake(10);
+  if (deadAIs.length > 0) { triggerShake(10); triggerHaptic('kill'); }
   if (prevPlayerAlive && state.player.cells.length === 0) {
     playDeath();
     triggerShake(25);
+    triggerHaptic('death');
   }
 
   // Decay shake
@@ -105,6 +130,16 @@ function loop(now) {
   if (shake.intensity < 0.3) shake.intensity = 0;
   shake.x = (Math.random() - 0.5) * shake.intensity;
   shake.y = (Math.random() - 0.5) * shake.intensity;
+
+  // Zone warning: play sound periodically when player is near the zone edge
+  if (state.player.cells.length > 0) {
+    const pc = playerCenter();
+    const distToEdge = state.zone.radius - Math.hypot(pc.x - state.zone.x, pc.y - state.zone.y);
+    if (distToEdge < 280 && performance.now() - zoneWarnTimer > 1800) {
+      playZoneWarn();
+      zoneWarnTimer = performance.now();
+    }
+  }
 
   updateCamera();
   draw();
@@ -126,39 +161,65 @@ function handleKeydown(event) {
 
 function handleTouch(event) {
   tryLandscapeLock();
+  // Skip if the touch is on a button or the joystick
   if (event.target.closest('button') || event.target.closest('.joystick')) return;
   event.preventDefault();
+  // Use changedTouches to get the touch that triggered this event
   const touch = event.changedTouches[0];
   if (!touch) return;
   setPointerFromClient(touch.clientX, touch.clientY);
 }
 
+function handleTouchEnd(event) {
+  // If all touches are gone, reset pointer to center (idle state)
+  if (event.touches.length === 0) {
+    setPointerFromClient(viewWidth / 2, viewHeight / 2);
+  }
+}
+
+function handleTouchCancel(event) {
+  // On touch cancel (system gesture, etc.), reset everything
+  handleTouchEnd(event);
+  if (joystickPointerId !== null) {
+    resetJoystick();
+  }
+}
+
 function handleJoystickStart(event) {
+  if (!joystick) return;
   event.preventDefault();
   initAudio();
   tryLandscapeLock();
   joystickPointerId = event.pointerId;
+  joystickLastMoveTime = performance.now();
   joystick.setPointerCapture(event.pointerId);
   joystick.classList.add('active');
   updateJoystick(event);
 }
 
 function handleJoystickMove(event) {
-  if (event.pointerId !== joystickPointerId) return;
+  if (!joystick || event.pointerId !== joystickPointerId) return;
   event.preventDefault();
   updateJoystick(event);
 }
 
 function handleJoystickEnd(event) {
-  if (event.pointerId !== joystickPointerId) return;
-  event.preventDefault();
+  if (event && event.pointerId !== joystickPointerId) return;
+  if (event) event.preventDefault();
+  resetJoystick();
+}
+
+function resetJoystick() {
   joystickPointerId = null;
+  joystickLastMoveTime = 0;
   joystickDirection = { x: 0, y: 0, strength: 0, active: false };
+  joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
   joystick.classList.remove('active');
   joystickBall.style.transform = 'translate(-50%, -50%)';
 }
 
 function updateJoystick(event) {
+  joystickLastMoveTime = performance.now();
   const rect = joystick.getBoundingClientRect();
   const result = calculateJoystick({
     clientX: event.clientX,
@@ -168,6 +229,14 @@ function updateJoystick(event) {
     maxDistance: rect.width * 0.34,
   });
   joystickDirection = result;
+  // Smooth the joystick output to reduce jitter
+  const lerpFactor = 0.32;
+  joystickSmoothed = {
+    x: lerp(joystickSmoothed.x, result.x, lerpFactor),
+    y: lerp(joystickSmoothed.y, result.y, lerpFactor),
+    strength: result.active ? lerp(joystickSmoothed.strength, result.strength, lerpFactor) : 0,
+    active: result.active,
+  };
   joystickBall.style.transform = `translate(calc(-50% + ${result.knobX}px), calc(-50% + ${result.knobY}px))`;
 }
 
@@ -192,6 +261,7 @@ function performSplit() {
   splitPlayer(state, directionFromPlayerToPointer());
   playSplit();
   triggerShake(5);
+  triggerHaptic('split');
   flash('分身冲刺');
 }
 
@@ -199,6 +269,7 @@ function performEject() {
   initAudio();
   ejectMass(state, directionFromPlayerToPointer());
   playEject();
+  triggerHaptic('eject');
   flash('吐球加速');
 }
 
@@ -227,9 +298,16 @@ function setPointerFromClient(clientX, clientY) {
 }
 
 function updatePointerWorld() {
+  // Safety: reset joystick if pointer capture was lost or no move events for a while
+  if (joystickPointerId !== null) {
+    if (!joystick.hasPointerCapture(joystickPointerId) ||
+        performance.now() - joystickLastMoveTime > JOYSTICK_IDLE_TIMEOUT) {
+      resetJoystick();
+    }
+  }
   const target = pointerTargetForControls({
     playerCenter: playerCenter(),
-    joystickDirection,
+    joystickDirection: joystickSmoothed,
     isTouchDevice: isTouchDevice(),
     camera,
     pointerScreen: { x: pointer.screenX, y: pointer.screenY },
@@ -244,8 +322,23 @@ function updateCamera() {
   const center = playerCenter();
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
   const targetScale = cameraScaleForMass({ totalMass, viewWidth, viewHeight });
-  camera.x += (center.x - camera.x) * 0.08;
-  camera.y += (center.y - camera.y) * 0.08;
+
+  // Track player velocity for look-ahead
+  const prevCenter = { x: camera.x, y: camera.y };
+  const rawVx = center.x - prevCenter.x;
+  const rawVy = center.y - prevCenter.y;
+  playerVelocity.x = lerp(playerVelocity.x, rawVx, 0.14);
+  playerVelocity.y = lerp(playerVelocity.y, rawVy, 0.14);
+
+  // Look-ahead: offset camera in movement direction for better game feel
+  const speed = Math.hypot(playerVelocity.x, playerVelocity.y);
+  const lookAheadMax = 260;
+  const lookAheadFactor = Math.min(1, speed / 180);
+  const lookX = playerVelocity.x * lookAheadFactor * (lookAheadMax / Math.max(1, speed)) * 0.55;
+  const lookY = playerVelocity.y * lookAheadFactor * (lookAheadMax / Math.max(1, speed)) * 0.55;
+
+  camera.x += (center.x + lookX - camera.x) * 0.08;
+  camera.y += (center.y + lookY - camera.y) * 0.08;
   camera.scale += (targetScale - camera.scale) * 0.06;
 }
 
@@ -401,14 +494,25 @@ function drawCell(cell, owner) {
   const radius = baseRadius * pulse;
   const isPlayer = owner.id === 'player';
   const fill = cellGradient(cell.x, cell.y, radius, owner.color, isPlayer);
+
+  // Velocity-based stretch for dynamic feel
+  const speed = Math.hypot(cell.vx, cell.vy);
+  const stretchFactor = Math.min(speed / 280, 1) * 0.18;
+  const stretchAngle = Math.atan2(cell.vy, cell.vx);
+
   ctx.save();
+  ctx.translate(cell.x, cell.y);
+  if (stretchFactor > 0.01) {
+    ctx.rotate(stretchAngle);
+    ctx.scale(1 + stretchFactor, 1 - stretchFactor * 0.5);
+  }
   ctx.shadowColor = isPlayer ? '#fef3c7' : owner.color;
   ctx.shadowBlur = (isPlayer ? 28 : 16) / camera.scale;
   ctx.beginPath();
   ctx.fillStyle = fill;
   ctx.strokeStyle = isPlayer ? '#ffffff' : 'rgba(255,255,255,0.76)';
   ctx.lineWidth = isPlayer ? 7 / camera.scale : 4 / camera.scale;
-  ctx.arc(cell.x, cell.y, radius, 0, Math.PI * 2);
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
@@ -416,7 +520,7 @@ function drawCell(cell, owner) {
   ctx.globalAlpha = 0.34;
   ctx.beginPath();
   ctx.fillStyle = '#ffffff';
-  ctx.arc(cell.x - radius * 0.32, cell.y - radius * 0.35, radius * 0.28, 0, Math.PI * 2);
+  ctx.arc(-radius * 0.32, -radius * 0.35, radius * 0.28, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
 
@@ -426,8 +530,8 @@ function drawCell(cell, owner) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `800 ${Math.max(14, radius * 0.28)}px "Microsoft YaHei", sans-serif`;
-  ctx.strokeText(owner.name, cell.x, cell.y);
-  ctx.fillText(owner.name, cell.x, cell.y);
+  ctx.strokeText(owner.name, 0, 0);
+  ctx.fillText(owner.name, 0, 0);
   ctx.restore();
 }
 
@@ -519,6 +623,7 @@ function drawMinimap() {
   const left = viewWidth - size - 12;
   const top = 10;
   const scale = size / CONFIG.worldSize;
+  const playerMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(left, top, size, size, 8);
@@ -535,7 +640,11 @@ function drawMinimap() {
 
   for (const ai of state.ai) {
     const c = ownerCenter(ai);
-    dot(left + c.x * scale, top + c.y * scale, 2, ai.color);
+    const aiMass = ai.cells.reduce((sum, cell) => sum + cell.mass, 0);
+    // Show threats (bigger AIs) in red, smaller AIs in their own color
+    const color = aiMass > playerMass * 1.15 ? '#ef4444' : ai.color;
+    const dotSize = aiMass > playerMass * 1.15 ? 3 : 2;
+    dot(left + c.x * scale, top + c.y * scale, dotSize, color);
   }
   const p = playerCenter();
   dot(left + p.x * scale, top + p.y * scale, 4, '#ddd6fe');
@@ -607,6 +716,24 @@ function triggerShake(intensity) {
   shake.intensity = Math.max(shake.intensity, intensity);
 }
 
+function triggerHaptic(type) {
+  if (!isTouchDevice() || !navigator.vibrate) return;
+  switch (type) {
+    case 'split':
+      navigator.vibrate(30);
+      break;
+    case 'eject':
+      navigator.vibrate(15);
+      break;
+    case 'kill':
+      navigator.vibrate([20, 30, 20]);
+      break;
+    case 'death':
+      navigator.vibrate([50, 40, 50, 40, 100]);
+      break;
+  }
+}
+
 function line(x1, y1, x2, y2) {
   ctx.beginPath();
   ctx.moveTo(x1, y1);
@@ -623,6 +750,10 @@ function dot(x, y, radius, color) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
 
 function isTouchDevice() {
