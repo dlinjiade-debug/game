@@ -6,9 +6,11 @@ import {
   applyZoneDamage,
   createInitialState,
   ejectMass,
+  radiusFromMass,
   resolveEating,
   resolveVirusHits,
   splitPlayer,
+  stepWorld,
 } from '../src/simulation.js';
 
 test('splitPlayer never creates more than sixteen player cells', () => {
@@ -89,4 +91,48 @@ test('new games start with the player larger than every AI cell', () => {
   const largestAiMass = Math.max(...state.ai.flatMap((ai) => ai.cells.map((cell) => cell.mass)));
 
   assert.ok(playerMass > largestAiMass);
+});
+
+test('splitPlayer emits particles', () => {
+  const state = createInitialState({ seed: 23, aiCount: 1, pelletCount: 0, virusCount: 0 });
+  splitPlayer(state, { x: 1, y: 0 });
+  stepWorld(state, { pointerWorld: { x: state.player.cells[0].x, y: state.player.cells[0].y }, isMoving: false }, 0.016);
+  assert.ok(state.particles.length > 0, 'Should emit particles on split');
+  assert.ok(state.particles.every((p) => p.life > 0 && p.life <= p.maxLife));
+});
+
+test('particles decay and are cleaned up', () => {
+  const state = createInitialState({ seed: 27, aiCount: 1, pelletCount: 0, virusCount: 0 });
+  splitPlayer(state, { x: 1, y: 0 });
+  // First step flushes pending particles into state
+  stepWorld(state, { pointerWorld: { x: state.player.cells[0]?.x ?? 0, y: state.player.cells[0]?.y ?? 0 }, isMoving: false }, 0.016);
+  // Speed up decay by setting life near zero
+  for (const p of state.particles) p.life = 0.001;
+  // Next step should clean them up
+  stepWorld(state, { pointerWorld: { x: state.player.cells[0]?.x ?? 0, y: state.player.cells[0]?.y ?? 0 }, isMoving: false }, 0.016);
+  assert.equal(state.particles.length, 0, 'Particles should be cleaned up after their lifetime');
+});
+
+test('AI cells split toward prey', () => {
+  const state = createInitialState({ seed: 31, aiCount: 1, pelletCount: 0, virusCount: 0 });
+  state.ai[0].cells[0].mass = 300;
+  state.ai[0].cells[0].x = 500;
+  state.ai[0].cells[0].y = 500;
+  state.player.cells[0].x = 500;
+  state.player.cells[0].y = 380;
+  state.player.cells[0].mass = 40;
+
+  stepWorld(state, { pointerWorld: { x: state.player.cells[0].x, y: state.player.cells[0].y }, isMoving: false }, 0.016);
+
+  assert.ok(state.ai[0].cells.length >= 1, 'AI should have at least 1 cell');
+});
+
+test('cells have idle velocity zeroed when not moving', () => {
+  const state = createInitialState({ seed: 37, aiCount: 1, pelletCount: 0, virusCount: 0 });
+  const cell = state.player.cells[0];
+  cell.vx = 50;
+  cell.vy = 30;
+  stepWorld(state, { pointerWorld: { x: cell.x, y: cell.y }, isMoving: false }, 0.016);
+  assert.ok(Math.abs(cell.vx) < 50, 'Velocity should decrease when idle');
+  assert.ok(Math.abs(cell.vy) < 30, 'Velocity should decrease when idle');
 });

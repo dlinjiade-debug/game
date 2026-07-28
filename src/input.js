@@ -38,17 +38,25 @@ export function pointerTargetForControls({ playerCenter, joystickDirection, isTo
     return {
       x: playerCenter.x + joystickDirection.x * reach,
       y: playerCenter.y + joystickDirection.y * reach,
+      isIdle: false,
     };
   }
 
   if (isTouchDevice) {
-    return playerCenter;
+    return { x: playerCenter.x, y: playerCenter.y, isIdle: true };
   }
 
-  return {
-    x: camera.x + (pointerScreen.x - view.width / 2) / camera.scale,
-    y: camera.y + (pointerScreen.y - view.height / 2) / camera.scale,
-  };
+  const worldX = camera.x + (pointerScreen.x - view.width / 2) / camera.scale;
+  const worldY = camera.y + (pointerScreen.y - view.height / 2) / camera.scale;
+  const dx = worldX - playerCenter.x;
+  const dy = worldY - playerCenter.y;
+  const screenDist = Math.hypot(dx * camera.scale, dy * camera.scale);
+
+  if (screenDist < 120) {
+    return { x: playerCenter.x, y: playerCenter.y, isIdle: true };
+  }
+
+  return { x: worldX, y: worldY, isIdle: false };
 }
 
 function clamp(value, min, max) {

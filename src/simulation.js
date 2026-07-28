@@ -46,6 +46,9 @@ export function createInitialState(options = {}) {
     pellets: [],
     ejected: [],
     viruses: [],
+    particles: [],
+    floatTexts: [],
+    aiSplitCooldowns: {},
     zone: {
       x: center,
       y: center,
@@ -84,8 +87,12 @@ export function stepWorld(state, input, dt) {
   resolveVirusHits(state);
   resolveEating(state);
   applyZoneDamage(state, dt);
+  emitDeadAIParticles(state);
+  emitDeadPlayerParticles(state);
   cleanupDead(state);
   maintainFood(state);
+  updateParticles(state, dt);
+  updateFloatTexts(state, dt);
   updateStatus(state);
   return state;
 }
@@ -100,12 +107,15 @@ export function splitPlayer(state, direction) {
     const newMass = cell.mass * 0.45;
     cell.mass -= newMass;
     cell.splitCooldown = CONFIG.mergeDelay;
+    const spawnX = cell.x + dir.x * radiusFromMass(cell.mass);
+    const spawnY = cell.y + dir.y * radiusFromMass(cell.mass);
     additions.push({
-      ...makeCell(nextId(state, 'player-split'), cell.x + dir.x * radiusFromMass(cell.mass), cell.y + dir.y * radiusFromMass(cell.mass), newMass),
+      ...makeCell(nextId(state, 'player-split'), spawnX, spawnY, newMass),
       vx: dir.x * CONFIG.splitImpulse,
       vy: dir.y * CONFIG.splitImpulse,
       splitCooldown: CONFIG.mergeDelay,
     });
+    addParticles(spawnX, spawnY, state.player.color, 6, { speed: 160, life: 0.4, radius: 4 });
   }
   state.player.cells.push(...additions);
 }
@@ -116,16 +126,19 @@ export function ejectMass(state, direction) {
     if (cell.mass <= CONFIG.minEjectMass) continue;
     cell.mass -= CONFIG.ejectCost;
     const radius = radiusFromMass(cell.mass);
+    const ex = cell.x + dir.x * (radius + 18);
+    const ey = cell.y + dir.y * (radius + 18);
     state.ejected.push({
       id: nextId(state, 'eject'),
-      x: cell.x + dir.x * (radius + 18),
-      y: cell.y + dir.y * (radius + 18),
+      x: ex,
+      y: ey,
       vx: dir.x * 620 + cell.vx * 0.2,
       vy: dir.y * 620 + cell.vy * 0.2,
       mass: CONFIG.ejectedMass,
       age: 0,
       owner: 'player',
     });
+    addParticles(ex, ey, '#e0f2fe', 3, { speed: 120, life: 0.25, radius: 3 });
   }
 }
 
@@ -180,41 +193,35 @@ function updateZone(state) {
 }
 
 function updatePlayer(state, input, dt) {
+  const isMoving = input.isMoving ?? true;
   for (const cell of state.player.cells) {
-    moveCellToward(cell, input.pointerWorld ?? { x: cell.x, y: cell.y }, dt);
+    moveCellToward(cell, input.pointerWorld ?? { x: cell.x, y: cell.y }, dt, isMoving);
   }
   mergeFriendlyCells(state.player, dt);
 }
 
-function updateAi(state, dt) {
-  const playerCells = state.player.cells;
-  for (const ai of state.ai) {
-    for (const cell of ai.cells) {
-      const threat = nearest(cell, playerCells.filter((p) => p.mass > cell.mass * 1.25));
-      const prey = nearest(cell, playerCells.filter((p) => cell.mass > p.mass * CONFIG.eatRatio));
-      const pellet = nearest(cell, state.pellets);
+function moveCellToward(cell, target, dt, isMoving = true) {
+  const dx = target.x - cell.x;
+  const dy = target.y - cell.y;
+  const dist = Math.hypot(dx, dy);
 
-      let target = pellet ?? { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2 };
-      if (prey && distance(cell, prey) < 700) target = prey;
-      if (threat && distance(cell, threat) < 520) {
-        target = { x: cell.x + (cell.x - threat.x), y: cell.y + (cell.y - threat.y) };
-      }
-
-      moveCellToward(cell, target, dt);
+  if (isMoving && dist > 5) {
+    const speed = Math.max(70, 310 - radiusFromMass(cell.mass) * 1.45);
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+    cell.vx = lerp(cell.vx, dirX * speed, 0.08);
+    cell.vy = lerp(cell.vy, dirY * speed, 0.08);
+  } else {
+    cell.vx *= 0.92;
+    cell.vy *= 0.92;
+    if (Math.abs(cell.vx) < 0.3 && Math.abs(cell.vy) < 0.3) {
+      cell.vx = 0;
+      cell.vy = 0;
     }
-    mergeFriendlyCells(ai, dt);
   }
-}
 
-function moveCellToward(cell, target, dt) {
-  const dir = normalize({ x: target.x - cell.x, y: target.y - cell.y });
-  const speed = Math.max(70, 310 - radiusFromMass(cell.mass) * 1.45);
-  cell.vx = lerp(cell.vx, dir.x * speed, 0.08);
-  cell.vy = lerp(cell.vy, dir.y * speed, 0.08);
   cell.x = clamp(cell.x + cell.vx * dt, 0, CONFIG.worldSize);
   cell.y = clamp(cell.y + cell.vy * dt, 0, CONFIG.worldSize);
-  cell.vx *= 0.985;
-  cell.vy *= 0.985;
   cell.splitCooldown = Math.max(0, cell.splitCooldown - dt);
 }
 
@@ -280,7 +287,9 @@ function eatCellsBetween(hunterOwner, preyOwner) {
     for (let i = preyOwner.cells.length - 1; i >= 0; i -= 1) {
       const prey = preyOwner.cells[i];
       if (!canEat(hunter, prey)) continue;
-      hunter.mass += prey.mass * 0.92;
+      const gained = prey.mass * 0.92;
+      hunter.mass += gained;
+      addParticles(prey.x, prey.y, preyOwner.color, 10, { speed: 180, life: 0.45, radius: 4 });
       preyOwner.cells.splice(i, 1);
     }
   }
@@ -301,6 +310,8 @@ function burstCell(state, owner, cellIndex) {
   const keptMass = cell.mass * 0.86;
   const massEach = keptMass / fragmentCount;
   const fragments = [];
+  const cx = cell.x;
+  const cy = cell.y;
 
   for (let i = 0; i < fragmentCount; i += 1) {
     const angle = (Math.PI * 2 * i) / fragmentCount + state.random() * 0.25;
@@ -313,6 +324,181 @@ function burstCell(state, owner, cellIndex) {
   }
 
   owner.cells.splice(cellIndex, 1, ...fragments);
+  addParticles(cx, cy, '#4ade80', 20, { speed: 300, life: 0.6, radius: 5 });
+  if (isPlayer) addFloatText(cx, cy, '💥 病毒爆炸!', '#4ade80', 1.5);
+}
+
+// --- Particle system (module-level accumulators, flushed into state each frame) ---
+
+const pendingParticles = [];
+const pendingFloatTexts = [];
+
+function addParticles(x, y, color, count, opts = {}) {
+  const { speed = 150, life = 0.4, radius = 4 } = opts;
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = speed * (0.4 + Math.random() * 0.6);
+    pendingParticles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd,
+      life, maxLife: life,
+      radius: radius * (0.6 + Math.random() * 0.4),
+      color,
+    });
+  }
+}
+
+function addFloatText(x, y, text, color, life = 1.2) {
+  pendingFloatTexts.push({ x, y, text, color, life, maxLife: life });
+}
+
+function flushParticles(state) {
+  if (pendingParticles.length > 0) {
+    state.particles.push(...pendingParticles);
+    pendingParticles.length = 0;
+  }
+  if (pendingFloatTexts.length > 0) {
+    state.floatTexts.push(...pendingFloatTexts);
+    pendingFloatTexts.length = 0;
+  }
+}
+
+function updateParticles(state, dt) {
+  flushParticles(state);
+  for (let i = state.particles.length - 1; i >= 0; i -= 1) {
+    const p = state.particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { state.particles.splice(i, 1); continue; }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    p.radius *= 0.98;
+  }
+}
+
+function updateFloatTexts(state, dt) {
+  for (let i = state.floatTexts.length - 1; i >= 0; i -= 1) {
+    const ft = state.floatTexts[i];
+    ft.life -= dt;
+    ft.y -= 40 * dt;
+    if (ft.life <= 0) state.floatTexts.splice(i, 1);
+  }
+}
+
+function emitDeadAIParticles(state) {
+  for (const ai of state.ai) {
+    if (ai.cells.length > 0) continue;
+    addParticles(ai.cells[0]?.x ?? 0, ai.cells[0]?.y ?? 0, ai.color, 25, { speed: 220, life: 0.7, radius: 5 });
+  }
+}
+
+function emitDeadPlayerParticles(state) {
+  if (state.player.cells.length !== 0) return;
+  const pc = playerCenterFromState(state);
+  addParticles(pc.x, pc.y, state.player.color, 30, { speed: 250, life: 0.8, radius: 6 });
+  addFloatText(pc.x, pc.y, '💀 被淘汰!', '#ef4444', 2.0);
+}
+
+function playerCenterFromState(state) {
+  if (state.player.cells.length === 0) return { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2 };
+  const mass = state.player.cells.reduce((s, c) => s + c.mass, 0);
+  return state.player.cells.reduce((ctr, c) => ({
+    x: ctr.x + (c.x * c.mass) / mass,
+    y: ctr.y + (c.y * c.mass) / mass,
+  }), { x: 0, y: 0 });
+}
+
+// --- AI upgrade ---
+
+function updateAi(state, dt) {
+  const playerCells = state.player.cells;
+  const zone = state.zone;
+
+  for (const ai of state.ai) {
+    for (const cell of ai.cells) {
+      const threat = nearest(cell, playerCells.filter((p) => p.mass > cell.mass * 1.25));
+      const prey = nearest(cell, playerCells.filter((p) => cell.mass > p.mass * CONFIG.eatRatio));
+      const pellet = nearest(cell, state.pellets);
+      const virus = nearest(cell, state.viruses);
+
+      let target = pellet ?? { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2 };
+
+      // Priority 1: Move toward zone if outside
+      const distToZone = distance(cell, zone);
+      if (distToZone > zone.radius * 0.85) {
+        target = { x: zone.x, y: zone.y };
+      }
+
+      // Priority 2: Seek prey
+      if (prey && distance(cell, prey) < 700) {
+        target = prey;
+      }
+
+      // Priority 3: Flee from threats
+      if (threat && distance(cell, threat) < 520) {
+        target = { x: cell.x + (cell.x - threat.x), y: cell.y + (cell.y - threat.y) };
+      }
+
+      // Virus avoidance: steer away if heading toward a virus and cell is large enough to pop
+      if (virus && cell.mass > CONFIG.minVirusPopMass * 0.8 && distance(cell, virus) < 350) {
+        const awayX = cell.x - virus.x;
+        const awayY = cell.y - virus.y;
+        const awayLen = Math.hypot(awayX, awayY) || 1;
+        target = { x: cell.x + (awayX / awayLen) * 400, y: cell.y + (awayY / awayLen) * 400 };
+      }
+
+      moveCellToward(cell, target, dt);
+    }
+
+    // AI split logic: split to chase nearby prey or flee from close threats
+    const aiCooldown = state.aiSplitCooldowns[ai.id] ?? 0;
+    state.aiSplitCooldowns[ai.id] = Math.max(0, aiCooldown - dt);
+    const hasActiveSplitCooldown = ai.cells.some((c) => c.splitCooldown > 0);
+
+    if (state.aiSplitCooldowns[ai.id] <= 0 && !hasActiveSplitCooldown && ai.cells.length < 6) {
+      const totalMass = ai.cells.reduce((s, c) => s + c.mass, 0);
+      const nearestPrey = nearest(ai.cells[0], playerCells.filter((p) => p.mass < totalMass / CONFIG.eatRatio));
+      const nearestThreat = nearest(ai.cells[0], playerCells.filter((p) => p.mass > totalMass * 1.25));
+
+      // Split to eat close prey
+      if (nearestPrey && distance(ai.cells[0], nearestPrey) < 450 && ai.cells[0].mass > CONFIG.minSplitMass) {
+        const dir = normalize({ x: nearestPrey.x - ai.cells[0].x, y: nearestPrey.y - ai.cells[0].y });
+        splitAICell(state, ai, dir);
+        state.aiSplitCooldowns[ai.id] = 6;
+      }
+      // Split to flee from very close threat
+      else if (nearestThreat && distance(ai.cells[0], nearestThreat) < 280 && ai.cells[0].mass > CONFIG.minSplitMass) {
+        const dir = normalize({ x: ai.cells[0].x - nearestThreat.x, y: ai.cells[0].y - nearestThreat.y });
+        splitAICell(state, ai, dir);
+        state.aiSplitCooldowns[ai.id] = 8;
+      }
+    }
+
+    mergeFriendlyCells(ai, dt);
+  }
+}
+
+function splitAICell(state, ai, dir) {
+  const additions = [];
+  for (const cell of ai.cells) {
+    if (ai.cells.length + additions.length >= 6) break;
+    if (cell.mass < CONFIG.minSplitMass) continue;
+    const newMass = cell.mass * 0.45;
+    cell.mass -= newMass;
+    cell.splitCooldown = CONFIG.mergeDelay;
+    const spawnX = cell.x + dir.x * radiusFromMass(cell.mass);
+    const spawnY = cell.y + dir.y * radiusFromMass(cell.mass);
+    additions.push({
+      ...makeCell(nextId(state, `${ai.id}-split`), spawnX, spawnY, newMass),
+      vx: dir.x * CONFIG.splitImpulse,
+      vy: dir.y * CONFIG.splitImpulse,
+      splitCooldown: CONFIG.mergeDelay,
+    });
+    addParticles(spawnX, spawnY, ai.color, 4, { speed: 120, life: 0.3, radius: 3 });
+  }
+  ai.cells.push(...additions);
 }
 
 function cleanupDead(state) {

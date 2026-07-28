@@ -7,6 +7,7 @@ import {
   stepWorld,
 } from './simulation.js';
 import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from './input.js';
+import { playEat, playSplit, playEject, playVirusPop, playDeath, playKill, initAudio } from './audio.js';
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
@@ -30,6 +31,10 @@ let pixelRatio = window.devicePixelRatio || 1;
 let triedLandscapeLock = false;
 let joystickPointerId = null;
 let joystickDirection = { x: 0, y: 0, strength: 0, active: false };
+let isMoving = true;
+let shake = { x: 0, y: 0, intensity: 0 };
+let killFeed = [];
+let prevPlayerAlive = true;
 
 const pointer = {
   x: CONFIG.worldSize / 2,
@@ -68,9 +73,39 @@ function loop(now) {
   const dt = Math.min(0.033, (now - lastTime) / 1000);
   lastTime = now;
 
+  // Track pre-step state for kill detection
+  const prevAI = state.ai.map((ai) => ({ id: ai.id, name: ai.name, alive: ai.cells.length > 0 }));
+  prevPlayerAlive = state.player.cells.length > 0;
+  const prevPelletCount = state.pellets.length;
+  const prevVirusCount = state.viruses.length;
+
   updateCamera();
   updatePointerWorld();
-  stepWorld(state, { pointerWorld: pointer }, dt);
+  stepWorld(state, { pointerWorld: pointer, isMoving }, dt);
+
+  // Detect events and play sounds
+  const pelletDiff = prevPelletCount - state.pellets.length;
+  if (pelletDiff > 0) playEat();
+  if (prevVirusCount > state.viruses.length) { playVirusPop(); triggerShake(15); }
+
+  const deadAIs = prevAI.filter((p) => p.alive && !state.ai.some((ai) => ai.id === p.id));
+  for (const dead of deadAIs) {
+    playKill();
+    killFeed.unshift({ text: `⚡ 你 消灭了 ${dead.name}`, time: performance.now() });
+    if (killFeed.length > 8) killFeed.length = 8;
+  }
+  if (deadAIs.length > 0) triggerShake(10);
+  if (prevPlayerAlive && state.player.cells.length === 0) {
+    playDeath();
+    triggerShake(25);
+  }
+
+  // Decay shake
+  shake.intensity *= 0.88;
+  if (shake.intensity < 0.3) shake.intensity = 0;
+  shake.x = (Math.random() - 0.5) * shake.intensity;
+  shake.y = (Math.random() - 0.5) * shake.intensity;
+
   updateCamera();
   draw();
   updateHud();
@@ -100,6 +135,7 @@ function handleTouch(event) {
 
 function handleJoystickStart(event) {
   event.preventDefault();
+  initAudio();
   tryLandscapeLock();
   joystickPointerId = event.pointerId;
   joystick.setPointerCapture(event.pointerId);
@@ -152,19 +188,26 @@ async function tryLandscapeLock() {
 }
 
 function performSplit() {
+  initAudio();
   splitPlayer(state, directionFromPlayerToPointer());
+  playSplit();
+  triggerShake(5);
   flash('分身冲刺');
 }
 
 function performEject() {
+  initAudio();
   ejectMass(state, directionFromPlayerToPointer());
+  playEject();
   flash('吐球加速');
 }
 
 function reset() {
+  initAudio();
   state = createInitialState();
   endScreen.classList.add('hidden');
   lastTime = performance.now();
+  killFeed = [];
   setPointerFromClient(viewWidth / 2, viewHeight / 2);
 }
 
@@ -194,6 +237,7 @@ function updatePointerWorld() {
   });
   pointer.x = target.x;
   pointer.y = target.y;
+  isMoving = !target.isIdle;
 }
 
 function updateCamera() {
@@ -211,7 +255,7 @@ function draw() {
   drawSpaceBackdrop();
 
   ctx.save();
-  ctx.translate(viewWidth / 2, viewHeight / 2);
+  ctx.translate(viewWidth / 2 + shake.x, viewHeight / 2 + shake.y);
   ctx.scale(camera.scale, camera.scale);
   ctx.translate(-camera.x, -camera.y);
 
@@ -221,9 +265,12 @@ function draw() {
   drawEjected();
   drawViruses();
   drawAllCells();
+  drawParticles();
+  drawFloatTexts();
 
   ctx.restore();
   drawMinimap();
+  drawKillFeed();
 }
 
 function drawGrid() {
@@ -301,13 +348,18 @@ function drawZone() {
 }
 
 function drawPellets() {
+  const time = state.elapsed;
   for (const pellet of state.pellets) {
+    const pulse = 1 + Math.sin(time * 3 + pellet.hue * 0.1) * 0.15;
+    const r = 5.5 * pulse;
+    const alpha = 0.75 + Math.sin(time * 2.5 + pellet.hue * 0.15) * 0.25;
     ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.shadowColor = `hsl(${pellet.hue} 90% 68%)`;
     ctx.shadowBlur = 10 / camera.scale;
     ctx.beginPath();
     ctx.fillStyle = `hsl(${pellet.hue} 95% 68%)`;
-    ctx.arc(pellet.x, pellet.y, 5.5, 0, Math.PI * 2);
+    ctx.arc(pellet.x, pellet.y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -344,7 +396,9 @@ function drawAllCells() {
 }
 
 function drawCell(cell, owner) {
-  const radius = radiusFromMass(cell.mass);
+  const baseRadius = radiusFromMass(cell.mass);
+  const pulse = 1 + Math.sin(state.elapsed * 2.5 + cell.x * 0.01) * 0.018;
+  const radius = baseRadius * pulse;
   const isPlayer = owner.id === 'player';
   const fill = cellGradient(cell.x, cell.y, radius, owner.color, isPlayer);
   ctx.save();
@@ -375,6 +429,67 @@ function drawCell(cell, owner) {
   ctx.strokeText(owner.name, cell.x, cell.y);
   ctx.fillText(owner.name, cell.x, cell.y);
   ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of state.particles) {
+    const alpha = (p.life / p.maxLife);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 6 / camera.scale;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawFloatTexts() {
+  for (const ft of state.floatTexts) {
+    const alpha = Math.min(1, ft.life / ft.maxLife * 2);
+    const fontSize = Math.max(16, 22 / camera.scale);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = ft.color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.lineWidth = Math.max(2, 3 / camera.scale);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${fontSize}px "Microsoft YaHei", sans-serif`;
+    ctx.strokeText(ft.text, ft.x, ft.y);
+    ctx.fillText(ft.text, ft.x, ft.y);
+    ctx.restore();
+  }
+}
+
+function drawKillFeed() {
+  const now = performance.now();
+  killFeed = killFeed.filter((entry) => now - entry.time < 3500);
+  const maxShow = 4;
+  const entries = killFeed.slice(0, maxShow);
+  const startX = viewWidth < 700 ? 10 : 220;
+  const startY = viewWidth < 700 ? 60 : 48;
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const age = (now - entry.time) / 3500;
+    const alpha = 1 - age;
+    const y = startY + i * 26;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(6, 10, 28, 0.65)';
+    ctx.beginPath();
+    ctx.roundRect(startX, y - 10, 240, 22, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 13px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(entry.text, startX + 8, y);
+    ctx.restore();
+  }
 }
 
 function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
@@ -486,6 +601,10 @@ function flash(message) {
   toast.classList.add('show');
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove('show'), 520);
+}
+
+function triggerShake(intensity) {
+  shake.intensity = Math.max(shake.intensity, intensity);
 }
 
 function line(x1, y1, x2, y2) {
