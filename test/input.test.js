@@ -1,7 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from '../src/input.js';
+import {
+  calculateJoystick,
+  cameraScaleForMass,
+  frameSmoothingFactor,
+  pixelRatioForViewport,
+  pointerTargetForControls,
+} from '../src/input.js';
+
+test('pixelRatioForViewport caps coarse landscape screens at DPR 2', () => {
+  assert.equal(pixelRatioForViewport({ devicePixelRatio: 3, isTouchDevice: true, viewWidth: 852, viewHeight: 393 }), 2);
+  assert.equal(pixelRatioForViewport({ devicePixelRatio: 3, isTouchDevice: true, viewWidth: 393, viewHeight: 852 }), 3);
+  assert.equal(pixelRatioForViewport({ devicePixelRatio: 4, isTouchDevice: false, viewWidth: 1280, viewHeight: 720 }), 3);
+});
+
+test('frameSmoothingFactor produces a stable exponential rate', () => {
+  const oneFrameAt60 = frameSmoothingFactor(10, 1 / 60);
+  const oneFrameAt30 = frameSmoothingFactor(10, 1 / 30);
+  const sixtyFrameProgress = 1 - Math.pow(1 - oneFrameAt60, 60);
+  const thirtyFrameProgress = 1 - Math.pow(1 - oneFrameAt30, 30);
+
+  assert.ok(Math.abs(sixtyFrameProgress - thirtyFrameProgress) < 0.000001);
+});
 
 test('calculateJoystick clamps the sliding ball inside the wheel', () => {
   const result = calculateJoystick({

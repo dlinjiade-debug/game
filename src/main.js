@@ -6,7 +6,14 @@ import {
   splitPlayer,
   stepWorld,
 } from './simulation.js';
-import { calculateJoystick, cameraScaleForMass, pointerTargetForControls } from './input.js';
+import {
+  calculateJoystick,
+  cameraScaleForMass,
+  frameSmoothingFactor,
+  pixelRatioForViewport,
+  pointerTargetForControls,
+  smoothValue,
+} from './input.js';
 import { playEat, playSplit, playEject, playVirusPop, playDeath, playKill, playZoneWarn, initAudio } from './audio.js';
 
 const canvas = document.querySelector('#game');
@@ -26,17 +33,27 @@ let state = createInitialState();
 let lastTime = performance.now();
 let toastTimer = 0;
 let zoneWarnTimer = 0;
-let viewWidth = window.innerWidth;
-let viewHeight = window.innerHeight;
-let pixelRatio = window.devicePixelRatio || 1;
+let viewWidth = window.visualViewport?.width || window.innerWidth;
+let viewHeight = window.visualViewport?.height || window.innerHeight;
+let pixelRatio = pixelRatioForViewport({
+  devicePixelRatio: window.devicePixelRatio,
+  isTouchDevice: window.matchMedia('(pointer: coarse)').matches,
+  viewWidth,
+  viewHeight,
+});
+let safeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+let viewportResizeFrame = 0;
+let backdropCanvas = null;
+let backdropKey = '';
+let hudLastUpdate = 0;
+let hudSignature = '';
 let triedLandscapeLock = false;
 let joystickPointerId = null;
 let joystickDirection = { x: 0, y: 0, strength: 0, active: false };
 let joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
-let joystickLastMoveTime = 0;
-const JOYSTICK_IDLE_TIMEOUT = 250; // ms — safety reset if no pointermove received
 let isMoving = true;
 let playerVelocity = { x: 0, y: 0 };
+let previousPlayerCenter = { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2 };
 let shake = { x: 0, y: 0, intensity: 0 };
 let killFeed = [];
 let prevPlayerAlive = true;
@@ -48,11 +65,16 @@ const pointer = {
   screenY: viewHeight / 2,
 };
 const camera = { x: CONFIG.worldSize / 2, y: CONFIG.worldSize / 2, scale: 1 };
+let renderBounds = { left: -Infinity, right: Infinity, top: -Infinity, bottom: Infinity };
 const stars = Array.from({ length: 240 }, (_, index) => makeStar(index));
 
 resize();
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => window.setTimeout(resize, 120));
+window.addEventListener('resize', scheduleResize);
+window.addEventListener('orientationchange', scheduleResize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', scheduleResize);
+  window.visualViewport.addEventListener('scroll', scheduleResize);
+}
 window.addEventListener('mousemove', (event) => setPointerFromClient(event.clientX, event.clientY));
 window.addEventListener('touchstart', handleTouch, { passive: false });
 window.addEventListener('touchmove', handleTouch, { passive: false });
@@ -65,10 +87,12 @@ document.addEventListener('fullscreenchange', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    resetJoystick();
     // Save the time so we don't get a huge dt spike when returning
     lastTime = performance.now();
   }
 });
+window.addEventListener('blur', resetJoystick);
 restart.addEventListener('click', reset);
 if (mobileSplit) {
   mobileSplit.addEventListener('pointerdown', (event) => {
@@ -103,8 +127,8 @@ function loop(now) {
   const prevPelletCount = state.pellets.length;
   const prevVirusCount = state.viruses.length;
 
-  updateCamera();
-  updatePointerWorld();
+  updateCamera(dt);
+  updatePointerWorld(dt);
   stepWorld(state, { pointerWorld: pointer, isMoving }, dt);
 
   // Detect events and play sounds
@@ -141,9 +165,9 @@ function loop(now) {
     }
   }
 
-  updateCamera();
+  updateCamera(dt);
   draw();
-  updateHud();
+  updateHud(now);
   requestAnimationFrame(loop);
 }
 
@@ -191,8 +215,12 @@ function handleJoystickStart(event) {
   initAudio();
   tryLandscapeLock();
   joystickPointerId = event.pointerId;
-  joystickLastMoveTime = performance.now();
-  joystick.setPointerCapture(event.pointerId);
+  try {
+    joystick.setPointerCapture(event.pointerId);
+  } catch {
+    resetJoystick();
+    return;
+  }
   joystick.classList.add('active');
   updateJoystick(event);
 }
@@ -204,22 +232,20 @@ function handleJoystickMove(event) {
 }
 
 function handleJoystickEnd(event) {
-  if (event && event.pointerId !== joystickPointerId) return;
+  if (event?.pointerId != null && event.pointerId !== joystickPointerId) return;
   if (event) event.preventDefault();
   resetJoystick();
 }
 
 function resetJoystick() {
   joystickPointerId = null;
-  joystickLastMoveTime = 0;
   joystickDirection = { x: 0, y: 0, strength: 0, active: false };
   joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
-  joystick.classList.remove('active');
-  joystickBall.style.transform = 'translate(-50%, -50%)';
+  joystick?.classList.remove('active');
+  if (joystickBall) joystickBall.style.transform = 'translate(-50%, -50%)';
 }
 
 function updateJoystick(event) {
-  joystickLastMoveTime = performance.now();
   const rect = joystick.getBoundingClientRect();
   const result = calculateJoystick({
     clientX: event.clientX,
@@ -229,14 +255,6 @@ function updateJoystick(event) {
     maxDistance: rect.width * 0.34,
   });
   joystickDirection = result;
-  // Smooth the joystick output to reduce jitter
-  const lerpFactor = 0.32;
-  joystickSmoothed = {
-    x: lerp(joystickSmoothed.x, result.x, lerpFactor),
-    y: lerp(joystickSmoothed.y, result.y, lerpFactor),
-    strength: result.active ? lerp(joystickSmoothed.strength, result.strength, lerpFactor) : 0,
-    active: result.active,
-  };
   joystickBall.style.transform = `translate(calc(-50% + ${result.knobX}px), calc(-50% + ${result.knobY}px))`;
 }
 
@@ -279,17 +297,114 @@ function reset() {
   endScreen.classList.add('hidden');
   lastTime = performance.now();
   killFeed = [];
+  playerVelocity = { x: 0, y: 0 };
+  previousPlayerCenter = playerCenter();
   setPointerFromClient(viewWidth / 2, viewHeight / 2);
+  hudSignature = '';
+  hudLastUpdate = 0;
+}
+
+function scheduleResize() {
+  if (viewportResizeFrame) return;
+  viewportResizeFrame = window.requestAnimationFrame(() => {
+    viewportResizeFrame = 0;
+    resize();
+  });
 }
 
 function resize() {
-  pixelRatio = window.devicePixelRatio || 1;
-  viewWidth = window.innerWidth;
-  viewHeight = window.innerHeight;
+  const viewport = readViewport();
+  viewWidth = viewport.width;
+  viewHeight = viewport.height;
+  pixelRatio = pixelRatioForViewport({
+    devicePixelRatio: window.devicePixelRatio,
+    isTouchDevice: isTouchDevice(),
+    viewWidth,
+    viewHeight,
+  });
+  safeInsets = readSafeInsets();
+
+  const root = document.documentElement;
+  root.style.setProperty('--viewport-width', `${viewWidth}px`);
+  root.style.setProperty('--viewport-height', `${viewHeight}px`);
+  root.style.setProperty('--viewport-offset-top', `${viewport.offsetTop}px`);
+  root.style.setProperty('--viewport-offset-left', `${viewport.offsetLeft}px`);
+  root.style.setProperty('--safe-top', `${safeInsets.top}px`);
+  root.style.setProperty('--safe-right', `${safeInsets.right}px`);
+  root.style.setProperty('--safe-bottom', `${safeInsets.bottom}px`);
+  root.style.setProperty('--safe-left', `${safeInsets.left}px`);
+  root.style.setProperty('--browser-inset-top', `${viewport.offsetTop}px`);
+  root.style.setProperty('--browser-inset-bottom', `${Math.max(0, window.innerHeight - viewport.offsetTop - viewport.height)}px`);
+
   canvas.width = Math.floor(viewWidth * pixelRatio);
   canvas.height = Math.floor(viewHeight * pixelRatio);
   canvas.style.width = `${viewWidth}px`;
   canvas.style.height = `${viewHeight}px`;
+  const nextBackdropKey = `${viewWidth}:${viewHeight}:${pixelRatio}`;
+  if (nextBackdropKey !== backdropKey) {
+    backdropKey = nextBackdropKey;
+    buildBackdrop();
+  }
+  pointer.screenX = clamp(pointer.screenX, 0, viewWidth);
+  pointer.screenY = clamp(pointer.screenY, 0, viewHeight);
+}
+
+function readViewport() {
+  const visualViewport = window.visualViewport;
+  return {
+    width: Math.max(1, visualViewport?.width || window.innerWidth),
+    height: Math.max(1, visualViewport?.height || window.innerHeight),
+    offsetTop: Math.max(0, visualViewport?.offsetTop || 0),
+    offsetLeft: Math.max(0, visualViewport?.offsetLeft || 0),
+  };
+}
+
+function readSafeInsets() {
+  const styles = getComputedStyle(document.documentElement);
+  return {
+    top: parseCssPixels(styles.getPropertyValue('--safe-area-top')),
+    right: parseCssPixels(styles.getPropertyValue('--safe-area-right')),
+    bottom: parseCssPixels(styles.getPropertyValue('--safe-area-bottom')),
+    left: parseCssPixels(styles.getPropertyValue('--safe-area-left')),
+  };
+}
+
+function parseCssPixels(value) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function buildBackdrop() {
+  try {
+    const nextCanvas = document.createElement('canvas');
+    nextCanvas.width = Math.max(1, Math.floor(viewWidth * pixelRatio));
+    nextCanvas.height = Math.max(1, Math.floor(viewHeight * pixelRatio));
+    const nextContext = nextCanvas.getContext('2d');
+    if (!nextContext) throw new Error('Backdrop context unavailable');
+    nextContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+    const gradient = nextContext.createRadialGradient(
+      viewWidth * 0.48,
+      viewHeight * 0.42,
+      30,
+      viewWidth * 0.5,
+      viewHeight * 0.5,
+      Math.max(viewWidth, viewHeight),
+    );
+    gradient.addColorStop(0, '#281a52');
+    gradient.addColorStop(0.34, '#121638');
+    gradient.addColorStop(0.72, '#080d22');
+    gradient.addColorStop(1, '#030614');
+    nextContext.fillStyle = gradient;
+    nextContext.fillRect(0, 0, viewWidth, viewHeight);
+
+    drawNebulaAt(nextContext, viewWidth * 0.2, viewHeight * 0.18, viewWidth * 0.45, 'rgba(124, 58, 237, 0.18)');
+    drawNebulaAt(nextContext, viewWidth * 0.82, viewHeight * 0.72, viewWidth * 0.38, 'rgba(14, 165, 233, 0.13)');
+    drawNebulaAt(nextContext, viewWidth * 0.55, viewHeight * 0.18, viewWidth * 0.32, 'rgba(236, 72, 153, 0.10)');
+    backdropCanvas = nextCanvas;
+  } catch {
+    backdropCanvas = null;
+  }
 }
 
 function setPointerFromClient(clientX, clientY) {
@@ -297,13 +412,20 @@ function setPointerFromClient(clientX, clientY) {
   pointer.screenY = clamp(clientY, 0, viewHeight);
 }
 
-function updatePointerWorld() {
-  // Safety: reset joystick if pointer capture was lost or no move events for a while
-  if (joystickPointerId !== null) {
-    if (!joystick.hasPointerCapture(joystickPointerId) ||
-        performance.now() - joystickLastMoveTime > JOYSTICK_IDLE_TIMEOUT) {
-      resetJoystick();
-    }
+function updatePointerWorld(dt) {
+  // Pointer capture is the only per-frame safety check; a held finger may not emit move events.
+  if (joystickPointerId !== null && joystick.hasPointerCapture && !joystick.hasPointerCapture(joystickPointerId)) {
+    resetJoystick();
+  }
+  const joystickFactor = frameSmoothingFactor(18, dt);
+  joystickSmoothed = {
+    x: smoothValue(joystickSmoothed.x, joystickDirection.x, 18, dt),
+    y: smoothValue(joystickSmoothed.y, joystickDirection.y, 18, dt),
+    strength: smoothValue(joystickSmoothed.strength, joystickDirection.active ? joystickDirection.strength : 0, 18, dt),
+    active: joystickDirection.active,
+  };
+  if (!joystickDirection.active && joystickFactor > 0.99) {
+    joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
   }
   const target = pointerTargetForControls({
     playerCenter: playerCenter(),
@@ -318,28 +440,30 @@ function updatePointerWorld() {
   isMoving = !target.isIdle;
 }
 
-function updateCamera() {
+function updateCamera(dt) {
   const center = playerCenter();
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
   const targetScale = cameraScaleForMass({ totalMass, viewWidth, viewHeight });
 
   // Track player velocity for look-ahead
-  const prevCenter = { x: camera.x, y: camera.y };
-  const rawVx = center.x - prevCenter.x;
-  const rawVy = center.y - prevCenter.y;
-  playerVelocity.x = lerp(playerVelocity.x, rawVx, 0.14);
-  playerVelocity.y = lerp(playerVelocity.y, rawVy, 0.14);
+  const rawVx = (center.x - previousPlayerCenter.x) / Math.max(dt, 1 / 120);
+  const rawVy = (center.y - previousPlayerCenter.y) / Math.max(dt, 1 / 120);
+  previousPlayerCenter = center;
+  playerVelocity.x = smoothValue(playerVelocity.x, rawVx, 8, dt);
+  playerVelocity.y = smoothValue(playerVelocity.y, rawVy, 8, dt);
 
   // Look-ahead: offset camera in movement direction for better game feel
   const speed = Math.hypot(playerVelocity.x, playerVelocity.y);
   const lookAheadMax = 260;
-  const lookAheadFactor = Math.min(1, speed / 180);
-  const lookX = playerVelocity.x * lookAheadFactor * (lookAheadMax / Math.max(1, speed)) * 0.55;
-  const lookY = playerVelocity.y * lookAheadFactor * (lookAheadMax / Math.max(1, speed)) * 0.55;
+  const lookAhead = Math.min(lookAheadMax, speed * 0.32);
+  const lookX = speed > 0.01 ? (playerVelocity.x / speed) * lookAhead : 0;
+  const lookY = speed > 0.01 ? (playerVelocity.y / speed) * lookAhead : 0;
 
-  camera.x += (center.x + lookX - camera.x) * 0.08;
-  camera.y += (center.y + lookY - camera.y) * 0.08;
-  camera.scale += (targetScale - camera.scale) * 0.06;
+  const cameraFactor = frameSmoothingFactor(5, dt);
+  const scaleFactor = frameSmoothingFactor(4, dt);
+  camera.x += (center.x + lookX - camera.x) * cameraFactor;
+  camera.y += (center.y + lookY - camera.y) * cameraFactor;
+  camera.scale += (targetScale - camera.scale) * scaleFactor;
 }
 
 function draw() {
@@ -351,6 +475,7 @@ function draw() {
   ctx.translate(viewWidth / 2 + shake.x, viewHeight / 2 + shake.y);
   ctx.scale(camera.scale, camera.scale);
   ctx.translate(-camera.x, -camera.y);
+  renderBounds = calculateVisibleWorldBounds();
 
   drawGrid();
   drawZone();
@@ -364,6 +489,26 @@ function draw() {
   ctx.restore();
   drawMinimap();
   drawKillFeed();
+}
+
+function visibleWorldBounds() {
+  return renderBounds;
+}
+
+function calculateVisibleWorldBounds() {
+  const padding = 80;
+  return {
+    left: camera.x - viewWidth / (2 * camera.scale) - padding,
+    right: camera.x + viewWidth / (2 * camera.scale) + padding,
+    top: camera.y - viewHeight / (2 * camera.scale) - padding,
+    bottom: camera.y + viewHeight / (2 * camera.scale) + padding,
+  };
+}
+
+function isWorldVisible(x, y, radius = 0) {
+  const bounds = visibleWorldBounds();
+  return x + radius >= bounds.left && x - radius <= bounds.right &&
+    y + radius >= bounds.top && y - radius <= bounds.bottom;
 }
 
 function drawGrid() {
@@ -381,17 +526,21 @@ function drawGrid() {
 }
 
 function drawSpaceBackdrop() {
-  const gradient = ctx.createRadialGradient(viewWidth * 0.48, viewHeight * 0.42, 30, viewWidth * 0.5, viewHeight * 0.5, Math.max(viewWidth, viewHeight));
-  gradient.addColorStop(0, '#281a52');
-  gradient.addColorStop(0.34, '#121638');
-  gradient.addColorStop(0.72, '#080d22');
-  gradient.addColorStop(1, '#030614');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, viewWidth, viewHeight);
+  if (backdropCanvas) {
+    ctx.drawImage(backdropCanvas, 0, 0, viewWidth, viewHeight);
+  } else {
+    const gradient = ctx.createRadialGradient(viewWidth * 0.48, viewHeight * 0.42, 30, viewWidth * 0.5, viewHeight * 0.5, Math.max(viewWidth, viewHeight));
+    gradient.addColorStop(0, '#281a52');
+    gradient.addColorStop(0.34, '#121638');
+    gradient.addColorStop(0.72, '#080d22');
+    gradient.addColorStop(1, '#030614');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, viewWidth, viewHeight);
 
-  drawNebula(viewWidth * 0.2, viewHeight * 0.18, viewWidth * 0.45, 'rgba(124, 58, 237, 0.18)');
-  drawNebula(viewWidth * 0.82, viewHeight * 0.72, viewWidth * 0.38, 'rgba(14, 165, 233, 0.13)');
-  drawNebula(viewWidth * 0.55, viewHeight * 0.18, viewWidth * 0.32, 'rgba(236, 72, 153, 0.10)');
+    drawNebula(viewWidth * 0.2, viewHeight * 0.18, viewWidth * 0.45, 'rgba(124, 58, 237, 0.18)');
+    drawNebula(viewWidth * 0.82, viewHeight * 0.72, viewWidth * 0.38, 'rgba(14, 165, 233, 0.13)');
+    drawNebula(viewWidth * 0.55, viewHeight * 0.18, viewWidth * 0.32, 'rgba(236, 72, 153, 0.10)');
+  }
 
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
@@ -409,13 +558,17 @@ function drawSpaceBackdrop() {
 }
 
 function drawNebula(x, y, radius, color) {
-  const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  drawNebulaAt(ctx, x, y, radius, color);
+}
+
+function drawNebulaAt(targetContext, x, y, radius, color) {
+  const gradient = targetContext.createRadialGradient(x, y, 0, x, y, radius);
   gradient.addColorStop(0, color);
   gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.fill();
+  targetContext.fillStyle = gradient;
+  targetContext.beginPath();
+  targetContext.arc(x, y, radius, 0, Math.PI * 2);
+  targetContext.fill();
 }
 
 function drawZone() {
@@ -443,6 +596,7 @@ function drawZone() {
 function drawPellets() {
   const time = state.elapsed;
   for (const pellet of state.pellets) {
+    if (!isWorldVisible(pellet.x, pellet.y, 16)) continue;
     const pulse = 1 + Math.sin(time * 3 + pellet.hue * 0.1) * 0.15;
     const r = 5.5 * pulse;
     const alpha = 0.75 + Math.sin(time * 2.5 + pellet.hue * 0.15) * 0.25;
@@ -460,6 +614,7 @@ function drawPellets() {
 
 function drawEjected() {
   for (const item of state.ejected) {
+    if (!isWorldVisible(item.x, item.y, 18)) continue;
     ctx.save();
     ctx.shadowColor = '#bae6fd';
     ctx.shadowBlur = 18 / camera.scale;
@@ -473,15 +628,22 @@ function drawEjected() {
 
 function drawViruses() {
   for (const virus of state.viruses) {
+    if (!isWorldVisible(virus.x, virus.y, radiusFromMass(virus.mass) + 16)) continue;
     drawSpikyCircle(virus.x, virus.y, radiusFromMass(virus.mass), 18, '#4ade80', '#166534');
   }
 }
 
 function drawAllCells() {
-  const all = [
-    ...state.ai.flatMap((ai) => ai.cells.map((cell) => ({ cell, owner: ai }))),
-    ...state.player.cells.map((cell) => ({ cell, owner: state.player })),
-  ].sort((a, b) => a.cell.mass - b.cell.mass);
+  const all = [];
+  for (const ai of state.ai) {
+    for (const cell of ai.cells) {
+      if (isWorldVisible(cell.x, cell.y, radiusFromMass(cell.mass) + 24)) all.push({ cell, owner: ai });
+    }
+  }
+  for (const cell of state.player.cells) {
+    if (isWorldVisible(cell.x, cell.y, radiusFromMass(cell.mass) + 24)) all.push({ cell, owner: state.player });
+  }
+  all.sort((a, b) => a.cell.mass - b.cell.mass);
 
   for (const item of all) {
     drawCell(item.cell, item.owner);
@@ -537,6 +699,7 @@ function drawCell(cell, owner) {
 
 function drawParticles() {
   for (const p of state.particles) {
+    if (!isWorldVisible(p.x, p.y, p.radius + 10)) continue;
     const alpha = (p.life / p.maxLife);
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -552,6 +715,7 @@ function drawParticles() {
 
 function drawFloatTexts() {
   for (const ft of state.floatTexts) {
+    if (!isWorldVisible(ft.x, ft.y, 80)) continue;
     const alpha = Math.min(1, ft.life / ft.maxLife * 2);
     const fontSize = Math.max(16, 22 / camera.scale);
     ctx.save();
@@ -620,8 +784,8 @@ function drawSpikyCircle(x, y, radius, spikes, fill, stroke) {
 
 function drawMinimap() {
   const size = viewWidth < 900 && viewWidth > viewHeight ? 112 : viewWidth < 700 ? 96 : 140;
-  const left = viewWidth - size - 12;
-  const top = 10;
+  const left = viewWidth - size - Math.max(12, safeInsets.right + 10);
+  const top = Math.max(10, safeInsets.top + 8);
   const scale = size / CONFIG.worldSize;
   const playerMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
   ctx.save();
@@ -651,10 +815,15 @@ function drawMinimap() {
   ctx.restore();
 }
 
-function updateHud() {
+function updateHud(now = performance.now()) {
   const totalMass = state.player.cells.reduce((sum, cell) => sum + cell.mass, 0);
   const alive = state.ai.length + (state.player.cells.length > 0 ? 1 : 0);
   const zonePercent = Math.round((state.zone.radius / CONFIG.startZoneRadius) * 100);
+  const signature = `${Math.round(totalMass)}|${state.player.cells.length}|${alive}|${zonePercent}|${state.status}`;
+  if (state.status === 'playing' && (now - hudLastUpdate < 100 || signature === hudSignature)) return;
+
+  hudLastUpdate = now;
+  hudSignature = signature;
   stats.innerHTML = `
     <div><b>质量</b>${Math.round(totalMass)}</div>
     <div><b>分身</b>${state.player.cells.length}/${CONFIG.maxPlayerCells}</div>

@@ -5,6 +5,21 @@
 const DEAD_ZONE = 12;
 const RELEASE_HYSTERESIS = 14;
 
+export function pixelRatioForViewport({ devicePixelRatio = 1, isTouchDevice = false, viewWidth = 0, viewHeight = 0 }) {
+  const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const isLandscapeTouch = isTouchDevice && viewWidth > viewHeight;
+  return Math.min(isLandscapeTouch ? 2 : 3, ratio);
+}
+
+export function frameSmoothingFactor(rate, dt) {
+  if (!Number.isFinite(rate) || rate <= 0 || !Number.isFinite(dt) || dt <= 0) return 0;
+  return 1 - Math.exp(-rate * dt);
+}
+
+export function smoothValue(current, target, rate, dt) {
+  return current + (target - current) * frameSmoothingFactor(rate, dt);
+}
+
 export function calculateJoystick({ clientX, clientY, centerX, centerY, maxDistance }) {
   const dx = clientX - centerX;
   const dy = clientY - centerY;
