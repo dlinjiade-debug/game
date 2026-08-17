@@ -657,7 +657,6 @@ function drawCell(cell, owner) {
   const pulse = 1 + Math.sin(state.elapsed * 2.5 + cell.x * 0.01) * 0.018;
   const radius = baseRadius * pulse;
   const isPlayer = owner.id === 'player';
-  const fill = cellGradient(cell.x, cell.y, radius, owner.color, isPlayer);
 
   // Velocity-based stretch for dynamic feel
   const speed = Math.hypot(cell.vx, cell.vy);
@@ -670,30 +669,72 @@ function drawCell(cell, owner) {
     ctx.rotate(stretchAngle);
     ctx.scale(1 + stretchFactor, 1 - stretchFactor * 0.5);
   }
-  ctx.shadowColor = isPlayer ? '#fef3c7' : owner.color;
-  ctx.shadowBlur = (isPlayer ? 28 : 16) / camera.scale;
+
+  const fill = cellGradient(0, 0, radius, owner.color, isPlayer);
+  const rimColor = isPlayer ? '#fff7c2' : shadeColor(owner.color, -46);
+  const innerRimColor = isPlayer ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.7)';
+
+  // Layered lighting keeps the ball readable at a distance while preserving the soft-gloss style.
+  ctx.shadowColor = isPlayer ? 'rgba(250, 204, 21, 0.86)' : owner.color;
+  ctx.shadowBlur = (isPlayer ? 30 : 18) / camera.scale;
   ctx.beginPath();
   ctx.fillStyle = fill;
-  ctx.strokeStyle = isPlayer ? '#ffffff' : 'rgba(255,255,255,0.76)';
-  ctx.lineWidth = isPlayer ? 7 / camera.scale : 4 / camera.scale;
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.stroke();
 
   ctx.shadowBlur = 0;
+  ctx.strokeStyle = rimColor;
+  ctx.globalAlpha = 0.92;
+  ctx.lineWidth = (isPlayer ? 6 : 4) / camera.scale;
+  ctx.stroke();
+
+  ctx.globalAlpha = 0.42;
+  ctx.strokeStyle = innerRimColor;
+  ctx.lineWidth = Math.max(2 / camera.scale, radius * 0.025);
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Broad soft reflection.
+  const gloss = ctx.createRadialGradient(
+    -radius * 0.34,
+    -radius * 0.42,
+    radius * 0.03,
+    -radius * 0.25,
+    -radius * 0.28,
+    radius * 0.64,
+  );
+  gloss.addColorStop(0, 'rgba(255,255,255,0.76)');
+  gloss.addColorStop(0.32, 'rgba(255,255,255,0.20)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.fillStyle = gloss;
+  ctx.arc(-radius * 0.18, -radius * 0.18, radius * 0.76, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Thin lower reflection gives the sphere a rounded edge instead of a flat fill.
   ctx.globalAlpha = 0.34;
   ctx.beginPath();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(2 / camera.scale, radius * 0.035);
+  ctx.arc(0, 0, radius * 0.82, 0.28, Math.PI - 0.28);
+  ctx.stroke();
+
+  // Small specular spark, kept subtle so it does not compete with the name.
+  ctx.globalAlpha = 0.78;
   ctx.fillStyle = '#ffffff';
-  ctx.arc(-radius * 0.32, -radius * 0.35, radius * 0.28, 0, Math.PI * 2);
+  ctx.beginPath();
+  ctx.arc(-radius * 0.48, -radius * 0.5, Math.max(1.5 / camera.scale, radius * 0.075), 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
 
   ctx.fillStyle = '#ffffff';
   ctx.strokeStyle = 'rgba(15, 23, 42, 0.8)';
-  ctx.lineWidth = Math.max(3 / camera.scale, radius * 0.035);
+  const labelSize = Math.max(11 / camera.scale, radius * 0.28);
+  ctx.lineWidth = Math.max(2.5 / camera.scale, labelSize * 0.12);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `800 ${Math.max(14, radius * 0.28)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `800 ${labelSize}px "Microsoft YaHei", sans-serif`;
   ctx.strokeText(owner.name, 0, 0);
   ctx.fillText(owner.name, 0, 0);
   ctx.restore();
