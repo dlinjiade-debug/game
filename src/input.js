@@ -8,7 +8,7 @@ const RELEASE_HYSTERESIS = 14;
 export function pixelRatioForViewport({ devicePixelRatio = 1, isTouchDevice = false, viewWidth = 0, viewHeight = 0 }) {
   const ratio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   const isLandscapeTouch = isTouchDevice && viewWidth > viewHeight;
-  return Math.min(isLandscapeTouch ? 2 : 3, ratio);
+  return Math.min(isLandscapeTouch ? 2.25 : 3, ratio);
 }
 
 export function frameSmoothingFactor(rate, dt) {
@@ -46,10 +46,10 @@ export function calculateJoystick({ clientX, clientY, centerX, centerY, maxDista
 export function cameraScaleForMass({ totalMass, viewWidth, viewHeight }) {
   const isMobileLandscape = viewWidth < 900 && viewWidth > viewHeight;
   const isSmallScreen = viewWidth < 700 || viewHeight < 520;
-  const base = isMobileLandscape ? 0.44 : isSmallScreen ? 0.50 : 0.72;
-  const massZoomOut = Math.log2(Math.max(1, totalMass / 180)) * (isMobileLandscape ? 0.12 : 0.095);
-  const minScale = isMobileLandscape ? 0.14 : isSmallScreen ? 0.18 : 0.26;
-  const maxScale = isMobileLandscape ? 0.38 : isSmallScreen ? 0.46 : 0.62;
+  const base = isMobileLandscape ? 0.38 : isSmallScreen ? 0.46 : 0.72;
+  const massZoomOut = Math.log2(Math.max(1, totalMass / 180)) * (isMobileLandscape ? 0.11 : 0.10);
+  const minScale = isMobileLandscape ? 0.12 : isSmallScreen ? 0.16 : 0.26;
+  const maxScale = isMobileLandscape ? 0.34 : isSmallScreen ? 0.42 : 0.62;
 
   return clamp(base - massZoomOut, minScale, maxScale);
 }

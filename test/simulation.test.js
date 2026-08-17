@@ -214,6 +214,7 @@ test('AI keeps its target until the decision interval expires', () => {
   assert.deepEqual(aiCell.aiTarget, firstTarget);
   stepWorld(state, { pointerWorld: { x: 600, y: 600 }, isMoving: false }, 0.05);
   stepWorld(state, { pointerWorld: { x: 600, y: 600 }, isMoving: false }, 0.05);
+  stepWorld(state, { pointerWorld: { x: 600, y: 600 }, isMoving: false }, 0.05);
   assert.notDeepEqual(aiCell.aiTarget, firstTarget);
 });
 

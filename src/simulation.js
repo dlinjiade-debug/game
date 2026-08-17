@@ -19,9 +19,11 @@ export const CONFIG = {
   startZoneRadius: 1900,
   finalZoneRadius: 260,
   zoneShrinkDuration: 210,
-  aiSpeedMultiplier: 0.8,
-  aiSplitImpulseMultiplier: 0.75,
-  aiDecisionInterval: 0.12,
+  aiSpeedMultiplier: 0.68,
+  aiSplitImpulseMultiplier: 0.6,
+  aiDecisionInterval: 0.18,
+  aiThreatRatio: 1.08,
+  aiSpawnMinDistance: 1050,
   aiMaxCells: 6,
   mergeAttractionDuration: 1.5,
   mergeAttractionSpeedRatio: 0.35,
@@ -75,7 +77,7 @@ export function createInitialState(options = {}) {
   for (let i = 0; i < virusCount; i += 1) spawnVirus(state);
   for (let i = 0; i < aiCount; i += 1) {
     const angle = random() * Math.PI * 2;
-    const distance = 850 + random() * 1450;
+    const distance = CONFIG.aiSpawnMinDistance + random() * 1250;
     state.ai.push({
       id: `ai-${i}`,
       name: AI_NAMES[i % AI_NAMES.length],
@@ -531,10 +533,10 @@ function updateAi(state, dt) {
       const totalMass = ai.cells.reduce((s, c) => s + c.mass, 0);
       const leader = ai.cells[0];
       const nearestPrey = nearest(leader, playerCells, (cell) => cell.mass < totalMass / CONFIG.eatRatio);
-      const nearestThreat = nearest(leader, playerCells, (cell) => cell.mass > totalMass * 1.25);
+      const nearestThreat = nearest(leader, playerCells, (cell) => cell.mass > totalMass * CONFIG.aiThreatRatio);
 
-      const splitChaseRange = personality === 'aggressive' ? 520 : 400;
-      const splitFleeRange = personality === 'defensive' ? 380 : 260;
+      const splitChaseRange = personality === 'aggressive' ? 420 : 320;
+      const splitFleeRange = personality === 'defensive' ? 420 : 320;
 
       // Split to eat close prey
       if (nearestPrey && distanceSquared(leader, nearestPrey) < splitChaseRange ** 2 && leader.mass > CONFIG.minSplitMass) {
@@ -559,7 +561,7 @@ function chooseAiTarget(state, ai, cell, personality, allCells, playerCells, zon
     ? querySpatialIndex(state.pelletIndex, cell, 1050)
     : state.pellets;
   const pellet = nearest(cell, pelletCandidates);
-  const threat = nearest(cell, allCells, (entry) => entry.cell.mass > cell.mass * 1.25)?.cell ?? null;
+  const threat = nearest(cell, allCells, (entry) => entry.cell.mass > cell.mass * CONFIG.aiThreatRatio)?.cell ?? null;
   const prey = nearest(cell, playerCells, (candidate) => cell.mass > candidate.mass * CONFIG.eatRatio);
   const aiPrey = nearestFromOtherAis(cell, state.ai, ai.id, (candidate) => cell.mass > candidate.mass * CONFIG.eatRatio);
   const ejected = nearest(cell, state.ejected, (candidate) => candidate.age > 0.45 || candidate.owner !== ai.id);
@@ -582,7 +584,7 @@ function chooseAiTarget(state, ai, cell, personality, allCells, playerCells, zon
       target = pellet;
     }
 
-    const fleeRange = personality === 'defensive' ? 650 : personality === 'aggressive' ? 350 : 480;
+    const fleeRange = personality === 'defensive' ? 720 : personality === 'aggressive' ? 460 : 560;
     if (threat && distanceSquared(cell, threat) < fleeRange ** 2) {
       target = {
         x: cell.x + (cell.x - threat.x),

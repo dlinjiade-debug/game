@@ -18,6 +18,8 @@ import { playEat, playSplit, playEject, playVirusPop, playDeath, playKill, playZ
 
 const canvas = document.querySelector('#game');
 const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
 const stats = document.querySelector('#stats');
 const leaderboard = document.querySelector('#leaderboard');
 const toast = document.querySelector('#toast');

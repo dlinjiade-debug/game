@@ -9,8 +9,8 @@ import {
   pointerTargetForControls,
 } from '../src/input.js';
 
-test('pixelRatioForViewport caps coarse landscape screens at DPR 2', () => {
-  assert.equal(pixelRatioForViewport({ devicePixelRatio: 3, isTouchDevice: true, viewWidth: 852, viewHeight: 393 }), 2);
+test('pixelRatioForViewport caps coarse landscape screens at a light quality boost', () => {
+  assert.equal(pixelRatioForViewport({ devicePixelRatio: 3, isTouchDevice: true, viewWidth: 852, viewHeight: 393 }), 2.25);
   assert.equal(pixelRatioForViewport({ devicePixelRatio: 3, isTouchDevice: true, viewWidth: 393, viewHeight: 852 }), 3);
   assert.equal(pixelRatioForViewport({ devicePixelRatio: 4, isTouchDevice: false, viewWidth: 1280, viewHeight: 720 }), 3);
 });
@@ -74,7 +74,7 @@ test('cameraScaleForMass zooms out more on mobile and as mass grows', () => {
 
   assert.ok(smallMobile < smallDesktop);
   assert.ok(largeMobile < smallMobile);
-  assert.ok(smallMobile <= 0.38);
+  assert.ok(smallMobile <= 0.34);
 });
 
 test('pointerTargetForControls stops on mobile when the joystick is idle', () => {
