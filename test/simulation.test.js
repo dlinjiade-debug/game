@@ -151,8 +151,8 @@ test('cells have idle velocity zeroed when not moving', () => {
   cell.vx = 50;
   cell.vy = 30;
   stepWorld(state, { pointerWorld: { x: cell.x, y: cell.y }, isMoving: false }, 0.016);
-  assert.ok(Math.abs(cell.vx) < 50, 'Velocity should decrease when idle');
-  assert.ok(Math.abs(cell.vy) < 30, 'Velocity should decrease when idle');
+  assert.equal(cell.vx, 0, 'Velocity should stop when idle');
+  assert.equal(cell.vy, 0, 'Velocity should stop when idle');
 });
 
 test('movement stays close between 30 FPS and 60 FPS', () => {

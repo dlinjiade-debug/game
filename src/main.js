@@ -110,12 +110,13 @@ if (mobileEject) {
 }
 if (joystick) {
   joystick.addEventListener('pointerdown', handleJoystickStart);
-  joystick.addEventListener('pointermove', handleJoystickMove);
   joystick.addEventListener('pointerup', handleJoystickEnd);
   joystick.addEventListener('pointercancel', handleJoystickEnd);
-  joystick.addEventListener('lostpointercapture', handleJoystickEnd);
   joystick.addEventListener('touchcancel', handleJoystickEnd);
 }
+window.addEventListener('pointermove', handleGlobalJoystickMove, { capture: true, passive: false });
+window.addEventListener('pointerup', handleGlobalPointerEnd, { capture: true, passive: false });
+window.addEventListener('pointercancel', handleGlobalPointerEnd, { capture: true, passive: false });
 
 requestAnimationFrame(loop);
 
@@ -200,6 +201,7 @@ function handleTouchEnd(event) {
   // If all touches are gone, reset pointer to center (idle state)
   if (event.touches.length === 0) {
     setPointerFromClient(viewWidth / 2, viewHeight / 2);
+    if (joystickPointerId !== null) resetJoystick();
   }
 }
 
@@ -213,6 +215,8 @@ function handleTouchCancel(event) {
 
 function handleJoystickStart(event) {
   if (!joystick) return;
+  if (joystickPointerId !== null) return;
+  if (event.pointerType === 'touch' && event.isPrimary === false) return;
   event.preventDefault();
   initAudio();
   tryLandscapeLock();
@@ -224,10 +228,10 @@ function handleJoystickStart(event) {
     return;
   }
   joystick.classList.add('active');
-  updateJoystick(event);
+  updateJoystick(event, true);
 }
 
-function handleJoystickMove(event) {
+function handleGlobalJoystickMove(event) {
   if (!joystick || event.pointerId !== joystickPointerId) return;
   event.preventDefault();
   updateJoystick(event);
@@ -247,7 +251,7 @@ function resetJoystick() {
   if (joystickBall) joystickBall.style.transform = 'translate(-50%, -50%)';
 }
 
-function updateJoystick(event) {
+function updateJoystick(event, immediate = false) {
   const rect = joystick.getBoundingClientRect();
   const result = calculateJoystick({
     clientX: event.clientX,
@@ -257,7 +261,21 @@ function updateJoystick(event) {
     maxDistance: rect.width * 0.34,
   });
   joystickDirection = result;
+  if (immediate) {
+    joystickSmoothed = {
+      x: result.x,
+      y: result.y,
+      strength: result.strength,
+      active: result.active,
+    };
+  }
   joystickBall.style.transform = `translate(calc(-50% + ${result.knobX}px), calc(-50% + ${result.knobY}px))`;
+}
+
+function handleGlobalPointerEnd(event) {
+  if (event?.pointerId == null || event.pointerId !== joystickPointerId) return;
+  event.preventDefault();
+  resetJoystick();
 }
 
 async function tryLandscapeLock() {
@@ -415,19 +433,15 @@ function setPointerFromClient(clientX, clientY) {
 }
 
 function updatePointerWorld(dt) {
-  // Pointer capture is the only per-frame safety check; a held finger may not emit move events.
-  if (joystickPointerId !== null && joystick.hasPointerCapture && !joystick.hasPointerCapture(joystickPointerId)) {
-    resetJoystick();
-  }
-  const joystickFactor = frameSmoothingFactor(18, dt);
-  joystickSmoothed = {
-    x: smoothValue(joystickSmoothed.x, joystickDirection.x, 18, dt),
-    y: smoothValue(joystickSmoothed.y, joystickDirection.y, 18, dt),
-    strength: smoothValue(joystickSmoothed.strength, joystickDirection.active ? joystickDirection.strength : 0, 18, dt),
-    active: joystickDirection.active,
-  };
-  if (!joystickDirection.active && joystickFactor > 0.99) {
+  if (!joystickDirection.active) {
     joystickSmoothed = { x: 0, y: 0, strength: 0, active: false };
+  } else {
+    joystickSmoothed = {
+      x: smoothValue(joystickSmoothed.x, joystickDirection.x, 32, dt),
+      y: smoothValue(joystickSmoothed.y, joystickDirection.y, 32, dt),
+      strength: smoothValue(joystickSmoothed.strength, joystickDirection.strength, 32, dt),
+      active: true,
+    };
   }
   const target = pointerTargetForControls({
     playerCenter: playerCenter(),

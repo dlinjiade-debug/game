@@ -223,6 +223,11 @@ function updateZone(state) {
 function updatePlayer(state, input, dt) {
   const isMoving = input.isMoving ?? true;
   for (const cell of state.player.cells) {
+    // A released joystick stops settled cells immediately; split impulse cells keep their launch movement.
+    if (!isMoving && cell.splitCooldown <= 0) {
+      cell.vx = 0;
+      cell.vy = 0;
+    }
     moveCellToward(cell, input.pointerWorld ?? { x: cell.x, y: cell.y }, dt, isMoving);
   }
   mergeFriendlyCells(state.player, dt);
